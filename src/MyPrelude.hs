@@ -3,6 +3,7 @@ module MyPrelude
        , module Data.List
        , module Data.Maybe
        , module Data.Bool
+       , module Data.Char
        , module Data.Monoid
        , module Data.Functor
        , module Data.Foldable
@@ -54,6 +55,7 @@ import Prelude hiding (error, undefined, lookup, zipWith, zip, (!!), cycle, head
 import Data.List hiding (uncons, lookup, zipWith, zip, (!!), cycle, foldl1, head, init, last, tail, foldl1', foldr1, maximum, minimum)
 import Data.Maybe hiding (fromJust)
 import Data.Bool
+import Data.Char
 import Data.Monoid
 import Data.Functor
 import Data.Foldable

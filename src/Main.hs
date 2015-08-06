@@ -15,9 +15,13 @@ import qualified Data.ByteString.Lazy as BL
 import System.Environment
 import Options.Applicative
 
+import Vis
+import qualified Diagrams.Prelude as D
+
 data Options = Options
                { _optInput  :: Either String String
                , _optOutput :: String
+               , _optVis    :: String
                }
 makeLenses ''Options
 
@@ -32,10 +36,14 @@ options = Options
                     ( long "inputstring"
                     <> metavar "INPUTSTRING"
                     <> help "Input string" )))
-               <*> strOption
+          <*> strOption
           ( long "output"
             <> short 'o'
             <> help "Output file" )
+          <*> strOption
+          ( long "vis"
+            <> short 'v'
+            <> help "Visualisation folder" )
 
 main :: IO ()
 main = do
@@ -44,4 +52,8 @@ main = do
               <> progDesc "ICFP 2015 !"
               <> header "Rafaël Bocquet & ???" )
   input     <- either readFile pure (options ^. optInput)
+  runVis (options ^. optVis) $ do
+    visLine "Toast <p> "
+    visDiagram (D.unitCircle)
+    pure ()
   pure ()
