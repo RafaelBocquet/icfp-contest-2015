@@ -5,7 +5,7 @@ cabal-version:       >=1.10
 
 executable ICFP
   main-is:             Main.hs
-  default-extensions:  TemplateHaskell, RankNTypes, NoMonomorphismRestriction
+  default-extensions:  TemplateHaskell, RankNTypes, NoMonomorphismRestriction, TypeFamilies, FlexibleContexts, FlexibleInstances
                      , LambdaCase, TupleSections, ViewPatterns, PatternSynonyms, UnicodeSyntax
                      , BangPatterns
                      , DeriveGeneric, GeneralizedNewtypeDeriving, DeriveFunctor, DeriveFoldable, DeriveTraversable

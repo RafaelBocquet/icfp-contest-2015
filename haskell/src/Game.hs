@@ -5,12 +5,24 @@ import Prelude ()
 import MyPrelude
 import Data.Aeson
 
+import qualified Data.Sequence as Seq
+import qualified Data.Map as Map
+import qualified Data.IntMap as IntMap
+import qualified Data.IntSet as IntSet
+import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as VM
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
+import qualified Diagrams.Prelude as D
+import qualified Graphics.Rendering.Chart.Easy as C
+
+
 data Problem = Problem
                { _problemId :: Integer
                , _problemUnits :: [Unit]
                , _problemWidth :: Int
                , _problemHeight :: Int
-               , _problemFilled :: [Cell]
+               , _problemFilled :: [(Int, Int)]
                , _problemSourceLength :: Integer
                , _problemSourceSeeds :: [Integer]
                }
@@ -18,10 +30,11 @@ data Problem = Problem
 
 data Cell = Cell { _cellX :: Int, _cellY :: Int }
             deriving (Show, Eq, Ord)
+pairOfCell (Cell x y) = (x, y)
 
 data Unit = Unit
-            { _unitMembers :: [Cell]
-            , _unitPivot :: Cell
+            { _unitMembers :: [(Int, Int)]
+            , _unitPivot :: (Int, Int)
             }
             deriving (Show)
 
@@ -31,20 +44,27 @@ instance FromJSON Problem where
                          <*> v .: "units"
                          <*> v .: "width"
                          <*> v .: "height"
-                         <*> v .: "filled"
+                         <*> (fmap pairOfCell <$> v .: "filled")
                          <*> v .: "sourceLength"
                          <*> v .: "sourceSeeds"
+  parseJSON _ = error "parseJSON: Problem"
 
 instance FromJSON Cell where
   parseJSON (Object v) = Cell
                          <$> v .: "x"
                          <*> v .: "y"
+  parseJSON _ = error "parseJSON: Cell"
 
 instance FromJSON Unit where
-   parseJSON (Object v) = Unit
-                          <$> v .: "members"
-                          <*> v .: "pivot"
+  parseJSON (Object v) = Unit
+                         <$> (fmap pairOfCell <$> v .: "members")
+                         <*> (pairOfCell <$> v .: "pivot")
+  parseJSON _ = error "parseJSON: Unit"
 
 makeLenses ''Problem
 makeLenses ''Cell
 makeLenses ''Unit
+
+-- unitDiagram :: Unit -> D.QDiagram Double D.V2 Double D.Any
+unitDiagram u = D.atPoints (u ^. unitMembers & fmap (D.p2 . bimap fromIntegral fromIntegral)) (repeat (D.regPoly 6 1 & D.scale 0.8))
+                & D.showOrigin

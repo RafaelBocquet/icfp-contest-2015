@@ -30,7 +30,7 @@ visLine s = Vis $ ReaderT $ \h → do
 
 visDiagram ∷ D.Diagram D.SVG → Vis ()
 visDiagram d = Vis $ ReaderT $ \h → do
-  BL.hPutStr h $ renderBS $ D.renderDia SVG (SVGOptions (mkWidth 400) Nothing "") d
+  BL.hPutStr h $ renderBS $ D.renderDia SVG (SVGOptions (D.mkSizeSpec $ Just . (* 60) <$> D.size d) Nothing "") d
   hPutStrLn h $ renderHtml br
   hFlush h
 

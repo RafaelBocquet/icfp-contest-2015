@@ -53,4 +53,5 @@ main = do
         visLine "Bad input"
         fail "Bad input"
       Just pb -> do
-        visLine (show pb)
+        visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
+        forM_ (pb^.problemUnits <&> unitDiagram) visDiagram
