@@ -2,6 +2,7 @@ module Solver where
 
 import Prelude ()
 import MyPrelude
+import Debug.Trace
 
 import Game
 
@@ -28,8 +29,11 @@ instance Num (Int, Int) where
   (a, b) - (x, y) = (a-x, b-y)
   negate (x, y)   = (-x, -y)
 
+-- UnitState = (Int, Int) -> ((Int, Int) -> Bool) -> Maybe [Command]
+-- How to compute efficiently ?
+
 computeUnitData :: Int -> Int -> Unit -> _
-computeUnitData w h u = zip allR (members <$> allR)
+computeUnitData w h u = execState (go (0, 0) RE) mempty
   where
     allR = [minBound..maxBound] :: [Rotation]
     pivotESE = u ^. unitPivot.to toBaseESE
@@ -45,3 +49,20 @@ computeUnitData w h u = zip allR (members <$> allR)
 
     members :: Rotation -> [(Int, Int)]
     members r = u^.unitMembers&fmap (toBaseESE >>> subtract pivotESE >>> rotESE r >>> (+ pivotESE) >>> fromBaseESE)
+
+    valid :: (Int, Int) -> Rotation -> Bool
+    valid p r = traceShow (p, r) $ getAll (foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h))) ((+p) <$> members r))
+
+    -- RecursiveDo !
+    go :: (Int, Int) -> Rotation -> State (Map ((Int, Int), Rotation) _) (Maybe (Maybe _))
+    go p@(x,y) r = mdo
+      a <- at (p, r) <%= Just . maybe s id
+      s <- if valid p r
+           then do
+             let psw = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
+             let pse = if y`mod`2 == 0 then (x-1, y+1) else (x, y+1)
+             asw <- go psw r
+             ase <- go pse r
+             pure (Just ())
+           else pure Nothing
+      pure a

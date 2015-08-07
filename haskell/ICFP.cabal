@@ -7,7 +7,7 @@ executable ICFP
   main-is:             Main.hs
   default-extensions:  TemplateHaskell, RankNTypes, NoMonomorphismRestriction, TypeFamilies, FlexibleContexts, FlexibleInstances
                      , LambdaCase, TupleSections, ViewPatterns, PatternSynonyms, UnicodeSyntax, OverloadedStrings, PartialTypeSignatures
-                     , BangPatterns
+                     , BangPatterns, RecursiveDo
                      , DeriveGeneric, GeneralizedNewtypeDeriving, DeriveFunctor, DeriveFoldable, DeriveTraversable
   build-depends:       base >=4.8 && <4.9
                      , containers
