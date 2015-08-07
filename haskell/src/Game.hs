@@ -40,6 +40,13 @@ data Unit = Unit
 
 data Command = MoveW | MoveE | MoveSW | MoveSE | RotateCW | RotateCCW
 
+data Solution = Solution
+                { _solutionProblemId :: Integer
+                , _solutionSeed      :: Integer
+                , _solutionTag       :: String
+                , _solutionCommands  :: String
+                }
+
 instance FromJSON Problem where
   parseJSON (Object v) = Problem
                          <$> v .: "id"

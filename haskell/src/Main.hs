@@ -52,7 +52,7 @@ main = do
              (fullDesc
               <> progDesc "ICFP 2015 !"
               <> header "Rafaël Bocquet & ???" )
-  runVis (options ^. optVis) $ do
+  sol <- runVis (options ^. optVis) $ do
     forM_ (options ^. optInput) $ \inputfile -> do
       input     <- liftIO $ BL.readFile inputfile
       visLine ("Input file : " ++ inputfile)

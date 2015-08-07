@@ -49,7 +49,7 @@ module MyPrelude
        where
 
 import System.Console.ANSI
-import Prelude hiding (error, undefined, lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
+import Prelude hiding (lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
 import Data.List hiding (uncons, lookup, zip, zipWith)
 import Data.Maybe hiding (fromJust)
 import Data.Bool
