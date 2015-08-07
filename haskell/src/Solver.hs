@@ -88,8 +88,8 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
       let v = valid (members u (p, r))
       when (v && not b) $ mdo
         _2 %= insNode (e, v)
-        let psw = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
-        let pse = if y`mod`2 == 0 then (x-1, y+1) else (x, y+1)
+        let psw = if y`mod`2 == 0 then (x-1, y+1) else (x, y+1)
+        let pse = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
         asw <- go (psw, r)
         ase <- go (pse, r)
         let v = (do guard (not asw); Just MoveSW) <|>
@@ -100,11 +100,11 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
 
 data SolverState = SolverState
                    { _stateRunning :: Bool
-                   , _stateRandom :: Integer
-                   , _stateWidth  :: Int
-                   , _stateHeight :: Int
-                   , _stateUnits  :: Vector (Unit, (Position, Gr (Maybe Command) Command))
-                   , _stateGrid   :: Vector (Vector Bool)
+                   , _stateRandom  :: Integer
+                   , _stateWidth   :: Int
+                   , _stateHeight  :: Int
+                   , _stateUnits   :: Vector (Unit, (Position, Gr (Maybe Command) Command))
+                   , _stateGrid    :: Vector (Vector Bool)
                    }
 makeLenses ''SolverState
 type Solver a = StateT SolverState IO a
@@ -121,10 +121,13 @@ ldfWith d ((v, m):vs) g = case match v g of
   (Just c@(_,_,e,_),g1)  -> (Node (v, (e, m)) ts:ts',g3)
     where (ts, g2) = ldfWith d (d c) g1
           (ts', g3) = ldfWith d vs g2
+ldffWith :: Graph gr => CFun a b [(Node, c)] → [(Node, c)] → gr a b → [Tree (Node, (a, c))]
 ldffWith a b c = fst (ldfWith a b c)
---plopTree :: [a] -> Tree (Node, (Maybe a, [a])) -> [(Node, [a])]
-plopTree b (Node (i, (Nothing, l)) f) = (i, MoveSW:l++b) : concat (plopTree (l++b) <$> f)
-plopTree b (Node (i, (Just a, l)) f) = (i, a:l++b) : concat (plopTree (l++b) <$> f)
+
+-- TODO : need to associate "impossible / stop" moves to nodes
+-- TODO impossible move -> more choice to create phrases of power
+treePaths b (Node (i, (Nothing, l)) f) = (i, MoveSW:l++b) : concat (treePaths (l++b) <$> f)
+treePaths b (Node (i, (Just a, l)) f) = (i, a:l++b) : concat (treePaths (l++b) <$> f)
 
 solveOne :: Solver [Command]
 solveOne = do
@@ -143,7 +146,7 @@ solveOne = do
     let rgr = ugr
               & nfilter (okpos . decodePosition w h)
               & ldffWith (fmap (second (:[])) . lsuc') [(encodePosition w h init, [])]
-              & concat . fmap (plopTree [])
+              & concat . fmap (treePaths [])
               & sortBy (compare `on` (length.snd))
               & reverse
     if null rgr
