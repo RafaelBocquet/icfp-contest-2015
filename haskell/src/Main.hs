@@ -54,6 +54,6 @@ main = do
   input     <- either readFile pure (options ^. optInput)
   runVis (options ^. optVis) $ do
     visLine "Toast <p> "
-    visDiagram (D.unitCircle)
+    visDiagram (D.unitCircle D.||| D.unitCircle)
     pure ()
   pure ()
