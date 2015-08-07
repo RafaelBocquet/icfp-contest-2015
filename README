@@ -1,0 +1,6 @@
+Usage : 
+mkdir VIS
+./haskell/dist/build/ICFP/ICFP -v VIS -i data/problem_xxx.json
+
+firefox ./VIS/???/index.html
+
