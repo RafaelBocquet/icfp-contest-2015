@@ -112,7 +112,7 @@ main = do
                    (\i -> V.generate (pb^.problemWidth)
                           (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
                  )
-            pure $ Solution (pb ^. problemId) seed "TAGI" (stringOfCommands $ concat c)
+            pure $ Solution (pb ^. problemId) seed "TAGJ" (stringOfCommands $ concat c)
   print (encode (toJSON sol))
   rsp <- postWith
          (defaults

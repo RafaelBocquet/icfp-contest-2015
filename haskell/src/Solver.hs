@@ -75,7 +75,7 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
   where
     initl = minimum . fmap fst $ u^.unitMembers
     initr = maximum . fmap fst $ u^.unitMembers
-    init = (((w-3*initl-initr)`div`2, 0), RE)
+    init = (((w-3*initl-initr-1)`div`2, 0), RE)
     allR = [minBound..maxBound] :: [Rotation]
     valid :: [(Int, Int)] -> Bool
     valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h)))
@@ -143,6 +143,8 @@ solveOne = do
     h <- use stateHeight
     liftIO $ printMap (\i j -> v V.! j V.! i) w h
     liftIO $ putStrLn ""
+    liftIO $ printMap (\i j -> (i, j) `elem` members u init) w h
+    liftIO $ putStrLn ""
     let rgr = ugr
               & nfilter (okpos . decodePosition w h)
               & ldffWith (fmap (second (:[])) . lsuc') [(encodePosition w h init, [])]
@@ -156,6 +158,7 @@ solveOne = do
       let (decodePosition w h -> ((x, y), r), c) = head rgr
           dt = members u ((x, y), r) & sort & fmap (\(x, y) -> (y, x)) & groupBy ((==) `on` fst) & fmap (\xs@((x,_):_) -> (x, snd <$> xs))
       liftIO $ print dt
+      liftIO $ print (reverse c)
       stateGrid %= (V.// (dt <&> \(x, y) -> (x, v V.! x V.// zip y (repeat True))))
       pure (reverse c)
     else pure []
