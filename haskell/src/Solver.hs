@@ -16,6 +16,8 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 
+import Debug.Trace
+
 import Game
 
 data Rotation = RE | RSE | RSW | RW | RNW | RNE
@@ -55,33 +57,32 @@ instance Num (Int, Int) where
   negate (x, y)   = (-x, -y)
 
 type Position = ((Int, Int), Rotation)
+
 encodePosition :: Int -> Int -> Position -> Int
 encodePosition w h ((x, y), r) = fromEnum r+6*(y+h*x)
+
 decodePosition :: Int -> Int -> Int -> Position
 decodePosition w h i = let (xy, r) = i `divMod` 6
                            (x, y) = xy `divMod` h
                        in ((x, y), toEnum r)
 
+members :: Unit -> Position -> [(Int, Int)]
+members u (p, r) = let pivotESE = u^.unitPivot.to toBaseESE
+                   in u^.unitMembers&fmap (toBaseESE >>> subtract pivotESE >>> rotESE r >>> (+ pivotESE) >>> fromBaseESE >>> (+ p))
 
-
-
-computeUnitData :: Int -> Int -> Unit -> _
-computeUnitData w h u = snd (execState (go (0, 0) RE) (mempty, mkGraph [] [] :: Gr _ _))
+computeUnitData :: Int -> Int -> Unit -> Gr () Command
+computeUnitData w h u = snd (execState (go (0, 0) RE) (mempty, mkGraph [] []))
   where
     allR = [minBound..maxBound] :: [Rotation]
-    pivotESE = u ^. unitPivot.to toBaseESE
-    members :: Rotation -> [(Int, Int)]
-    members r = u^.unitMembers&fmap (toBaseESE >>> subtract pivotESE >>> rotESE r >>> (+ pivotESE) >>> fromBaseESE)
-
     valid :: [(Int, Int)] -> Bool
     valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h)))
 
     -- RecursiveDo !
-    go :: (Int, Int) -> Rotation -> State (Set ((Int, Int), Rotation), Gr () Command) Bool
+    go :: (Int, Int) -> Rotation -> State (Set Position, Gr () Command) Bool
     go p@(x,y) r = do
       let e = encodePosition w h (p, r)
       b <- _1 . contains (p, r) <<.= True
-      let v = valid ((p +) <$> members r)
+      let v = valid (members u (p, r))
       when (v && not b) $ do
         _2 %= insNode (e, ())
         let psw = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
@@ -92,45 +93,52 @@ computeUnitData w h u = snd (execState (go (0, 0) RE) (mempty, mkGraph [] [] :: 
         when ase (_2 %= insEdge (e, encodePosition w h (pse, r), MoveSE))
       pure v
 
--- type PosLookup = (Int, Int) -> Bool
--- type UnitData = Map ((Int, Int), Rotation) (PosLookup -> Maybe [Command])
+data SolverState = SolverState
+                   { _stateRandom :: Integer
+                   , _stateWidth  :: Int
+                   , _stateHeight :: Int
+                   , _stateUnits  :: Vector (Unit, Gr () Command)
+                   , _stateGrid   :: Vector (Vector Bool)
+                   }
+makeLenses ''SolverState
+type Solver a = StateT SolverState IO a
 
--- computeUnitData :: Int -> Int -> Unit -> _
--- computeUnitData w h u = execState (go (0, 0) RE) mempty
---   where
---     allR = [minBound..maxBound] :: [Rotation]
---     pivotESE = u ^. unitPivot.to toBaseESE
---     members :: Rotation -> [(Int, Int)]
---     members r = u^.unitMembers&fmap (toBaseESE >>> subtract pivotESE >>> rotESE r >>> (+ pivotESE) >>> fromBaseESE)
+ldfWith :: Graph gr
+           => CFun a b [(Node, c)]
+           -> [(Node, c)]
+           -> gr a b
+           -> ([Tree (Node, c)],gr a b)
+ldfWith _ []     g             = ([],g)
+ldfWith _ _      g | isEmpty g = ([],g)
+ldfWith d ((v, m):vs) g = case match v g of
+  (Nothing,g1) -> ldfWith d vs g1
+  (Just c,g1)  -> (Node (v, m) ts:ts',g3)
+    where (ts, g2) = ldfWith d (d c) g1
+          (ts', g3) = ldfWith d vs g2
+ldffWith a b c = fst (ldfWith a b c)
+plopTree :: Monoid c => c -> Tree (Node, c) -> [(Node, c)]
+plopTree b (Node l f) = second (b <>) l : concat (plopTree (b <> (snd l)) <$> f)
 
---     valid :: [(Int, Int)] -> Bool
---     valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h)))
+solveOne :: Solver [Command]
+solveOne = do
+  n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral) $ stateRandom <%= (`mod` (2^32)) . (+ 12345) . (* 1103515245)
+  un <- use stateUnits
+  v <- use stateGrid
+  let (u, ugr) = un V.! (n `mod` V.length un)
+  w <- use stateWidth
+  h <- use stateHeight
+  liftIO $ printMap (\i j -> v V.! i V.! j) w h
+  liftIO $ putStrLn ""
+  let rgr = ugr
+            & nfilter (\(decodePosition w h -> p) -> all (\(i, j) -> not $ v V.! i V.! j) (members u p))
+            & ldffWith (fmap (second (:[])) . lsuc') [(encodePosition w h ((0, 0), RE), [])]
+            & concat . fmap (plopTree [])
+  if null rgr
+    then do
+    pure []
+    else do
+    let (decodePosition w h -> ((x, y), r), c) = cycle rgr !! 42
+        dt = members u ((x, y), r) & sort & groupBy ((==) `on` fst) & fmap (\xs@((x,_):_) -> (x, snd <$> xs))
+    stateGrid %= (V.// (dt <&> \(x, y) -> (x, v V.! x V.// zip y (repeat True))))
+    pure c
 
---     kalt a b = \c -> a c <|> b c
-
---     -- RecursiveDo !
---     go :: (Int, Int) -> Rotation -> State (Map ((Int, Int), Rotation) UnitData) UnitData
---     go p@(x,y) r = mdo
---       ~(Just a) <- at (p, r) <%= Just . maybe s id
---       let cpos = (+p) <$> members r
---       s <- if valid cpos
---            then do
---              let psw = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
---              let pse = if y`mod`2 == 0 then (x-1, y+1) else (x, y+1)
---              asw <- go psw r
---              ase <- go pse r
---              -- pure $ Map.insertWith kalt (p, r) (\v -> do
---              --                                        guard (all v cpos)
---              --                                        (do
---              --                                             guard (not (all v ((+psw)<$>members r)))
---              --                                             pure (Map.singleton (p, r) [MoveSW])) <|>
---              --                                          (do
---              --                                               guard (not (all v ((+pse)<$>members r)))
---              --                                               pure (Map.singleton (p, r) [MoveSE]))
---              --                                   )
---              pure $ Map.insertWith kalt (p, r) (\v -> do
---                                                     guard (all v cpos)
---                                                     (do guard (not (all v ((+psw)<$>))))
---                                                ) (Map.unionWith kalt asw ase)
---            else pure mempty
---       pure a

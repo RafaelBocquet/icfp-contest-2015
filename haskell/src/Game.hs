@@ -83,3 +83,18 @@ instance ToJSON Solution where
 makeLenses ''Problem
 makeLenses ''Cell
 makeLenses ''Unit
+
+
+printMap :: (Int -> Int -> Bool) -> Int -> Int -> IO ()
+printMap v w h = do
+  forM_ [0..h-1] $ \i -> do
+    when (i `mod` 2 /= 0) (putChar ' ')
+    forM_ [0..w-1] $ \j -> do
+      if v j i
+        then do
+        setSGR [SetColor Foreground Vivid Red]
+        putChar 'O'
+        else putChar 'X'
+      setSGR [Reset]
+      putChar ' '
+    putChar '\n'

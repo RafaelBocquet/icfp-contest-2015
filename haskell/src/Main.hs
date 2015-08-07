@@ -58,17 +58,7 @@ printProblem pb = do
   visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
   visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
   liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
-  forM_ [0..h-1] $ \i -> liftIO $ do
-    when (i `mod` 2 /= 0) (putChar ' ')
-    forM_ [0..w-1] $ \j -> do
-      if Set.member (j, i) f
-        then do
-        setSGR [SetColor Foreground Vivid Red]
-        putChar 'O'
-        else putChar 'X'
-      setSGR [Reset]
-      putChar ' '
-    putChar '\n'
+  liftIO $ printMap (curry $ Set.member ?? f) w h
   forM_ (pb ^. problemUnits) $ \u -> do
     visLine (show $ computeUnitData w h u)
     liftIO $ putStrLn "UNIT"
@@ -86,6 +76,14 @@ printProblem pb = do
         putChar ' '
       putChar '\n'
 
+stringOfCommands :: [Command] -> String
+stringOfCommands = fmap (head . (\case
+                                     MoveW -> "p'!.03"
+                                     MoveE -> "bcefy2"
+                                     MoveSW -> "aghij4"
+                                     MoveSE -> "lmno 5"
+                                     RotateCW -> "dqrvz1"
+                                     RotateCCW -> "kstuwx"))
 
 main :: IO ()
 main = do
@@ -103,8 +101,19 @@ main = do
           fail "Bad input"
         Just pb -> do
           printProblem pb
+          let units' = pb ^. problemUnits
+                       <&> (\x -> (x, computeUnitData (pb^.problemWidth) (pb^.problemHeight) x))
+                       & V.fromList
           forM (pb ^. problemSourceSeeds) $ \seed -> do
-            pure $ Solution (pb ^. problemId) seed "" ""
+            c <- liftIO $ evalStateT (forM [1..pb^.problemSourceLength] (const solveOne))
+                 (SolverState seed (pb^.problemWidth) (pb^.problemHeight)
+                  units'
+                  (V.generate (pb^.problemHeight)
+                   (\i -> V.generate (pb^.problemWidth)
+                          (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
+                 )
+            pure $ Solution (pb ^. problemId) seed "" (stringOfCommands $ concat c)
+  putStrLn (show (toJSON sol))
   -- rsp <- postWith
   --        (defaults
   --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
