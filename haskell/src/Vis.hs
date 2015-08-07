@@ -4,17 +4,22 @@ module Vis where
 import Prelude ()
 import MyPrelude
 
+import qualified Data.ByteString.Lazy as BL
+
 import Data.String
 import Text.Blaze.Html5 as H
 import Text.Blaze.Html.Renderer.String
 import Diagrams.Prelude as D
 import Diagrams.Backend.SVG as D
-import qualified Data.ByteString.Lazy as BL
+import qualified Graphics.Rendering.Chart.Renderable as C
+import qualified Graphics.Rendering.Chart.Easy as C
+import qualified Graphics.Rendering.Chart.Backend.Diagrams as C
+
 import System.Directory
 import Lucid.Svg
 
 newtype Vis a = Vis { unVis :: ReaderT Handle IO a }
-              deriving (Functor, Applicative, Monad)
+              deriving (Functor, Applicative, Monad, MonadIO)
 
 visLine ∷ String → Vis ()
 visLine s = Vis $ ReaderT $ \h → do
@@ -25,6 +30,11 @@ visLine s = Vis $ ReaderT $ \h → do
 visDiagram ∷ D.Diagram D.SVG → Vis ()
 visDiagram d = Vis $ ReaderT $ \h → do
   BL.hPutStr h $ renderBS $ D.renderDia SVG (SVGOptions (mkWidth 400) Nothing "") d
+  hPutStrLn h $ renderHtml br
+
+visChart :: (C.ToRenderable a, C.Default a) => C.EC a b -> Vis ()
+visChart c = Vis $ ReaderT $ \h -> do
+  BL.hPutStr h . fst =<< C.renderableToSVGString (C.toRenderable (C.execEC c)) 400 400
   hPutStrLn h $ renderHtml br
 
 runVis :: FilePath -> Vis a -> IO a

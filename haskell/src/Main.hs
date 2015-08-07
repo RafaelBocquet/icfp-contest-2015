@@ -11,12 +11,13 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Diagrams.Prelude as D
+import qualified Graphics.Rendering.Chart.Easy as C
 
 import System.Environment
 import Options.Applicative
 
 import Vis
-import qualified Diagrams.Prelude as D
 
 data Options = Options
                { _optInput  :: Either String String
@@ -53,7 +54,12 @@ main = do
               <> header "Rafaël Bocquet & ???" )
   input     <- either readFile pure (options ^. optInput)
   runVis (options ^. optVis) $ do
-    visLine "Toast <p> "
-    visDiagram (D.unitCircle D.||| D.unitCircle)
+    visDiagram ((D.unitCircle D.||| D.unitCircle) & D.center)
+    visChart $ do
+      let signal :: [Double] -> [(Double, Double)]
+          signal xs = [ (x,(sin (x*3.14159/45) + 1) / 2 * (sin (x*3.14159/5))) | x <- xs ]
+      C.layout_title .= "Amplitude Modulation"
+      C.setColors [C.opaque C.blue, C.opaque C.red]
+      C.plot (C.line "am" [signal [0,(0.5)..400]])
+      C.plot (C.points "am points" (signal [0,7..400]))
     pure ()
-  pure ()
