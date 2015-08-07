@@ -40,6 +40,7 @@ module MyPrelude
        , module Prelude.Unicode
        , module Control.DeepSeq
        , module Control.DeepSeq.Generics
+       , module System.Console.ANSI
 
        , module System.IO
 
@@ -51,6 +52,7 @@ module MyPrelude
        )
        where
 
+import System.Console.ANSI
 import Prelude hiding (error, undefined, lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
 import Data.List hiding (uncons, lookup, zipWith, zip, (!!), cycle, foldl1, head, init, last, tail, foldl1', foldr1, maximum, minimum)
 import Data.Maybe hiding (fromJust)

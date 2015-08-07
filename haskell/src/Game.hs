@@ -64,7 +64,3 @@ instance FromJSON Unit where
 makeLenses ''Problem
 makeLenses ''Cell
 makeLenses ''Unit
-
--- unitDiagram :: Unit -> D.QDiagram Double D.V2 Double D.Any
-unitDiagram u = D.atPoints (u ^. unitMembers & fmap (D.p2 . bimap fromIntegral fromIntegral)) (repeat (D.regPoly 6 1 & D.scale 0.8))
-                & D.showOrigin
