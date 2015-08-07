@@ -22,6 +22,7 @@ import Data.Aeson
 
 import Vis
 import Game
+import Solver
 
 data Options = Options
                { _optInput  :: [String]
@@ -55,6 +56,7 @@ printProblem pb = do
   visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
   visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
   visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
+  visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
   liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
   forM_ [0..h-1] $ \i -> liftIO $ do
     when (i `mod` 2 /= 0) (putChar ' ')
@@ -67,14 +69,15 @@ printProblem pb = do
       setSGR [Reset]
       putChar ' '
     putChar '\n'
-  forM_ (pb ^. problemUnits) $ \u -> liftIO $ do
-    putStrLn "UNIT"
+  forM_ (pb ^. problemUnits) $ \u -> do
+    visLine (show $ computeUnitData w h u)
+    liftIO $ putStrLn "UNIT"
     let as = (u^.unitPivot):(u^.unitMembers)
-    setSGR [SetColor Background Dull Green]
-    forM_ [minimum (snd <$> as) .. maximum (snd <$> as)] $ \i -> do
+    liftIO $ setSGR [SetColor Background Dull Green]
+    liftIO $ forM_ [minimum (snd <$> as) .. maximum (snd <$> as)] $ \i -> do
       when (i `mod` 2 /= minimum (snd <$> as) `mod` 2) (putChar ' ')
       forM_ [minimum (fst <$> as) .. maximum (fst <$> as)] $ \j -> do
-        setSGR [SetColor Foreground Vivid Red]
+        when ((j, i) == u^.unitPivot) $ setSGR [SetColor Foreground Vivid Red]
         case ((j, i) == u^.unitPivot, (j, i) `elem` u^.unitMembers) of
           (False, False) -> putStr " "
           (True, False)  -> putStr "O"

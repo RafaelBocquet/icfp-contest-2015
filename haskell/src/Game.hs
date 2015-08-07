@@ -30,6 +30,8 @@ data Problem = Problem
 
 data Cell = Cell { _cellX :: Int, _cellY :: Int }
             deriving (Show, Eq, Ord)
+
+pairOfCell ∷ Cell → (Int, Int)
 pairOfCell (Cell x y) = (x, y)
 
 data Unit = Unit

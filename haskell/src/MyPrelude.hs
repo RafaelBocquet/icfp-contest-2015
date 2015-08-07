@@ -37,6 +37,7 @@ module MyPrelude
        , module Control.DeepSeq
        , module Control.DeepSeq.Generics
        , module System.Console.ANSI
+       , module Control.Category
 
        , module System.IO
 
@@ -49,7 +50,7 @@ module MyPrelude
        where
 
 import System.Console.ANSI
-import Prelude hiding (lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
+import Prelude hiding (id, (.), lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
 import Data.List hiding (uncons, lookup, zip, zipWith)
 import Data.Maybe hiding (fromJust)
 import Data.Bool
@@ -72,6 +73,7 @@ import Control.Monad.Cont
 import Control.Monad.ST
 import Control.Monad.Loops
 import GHC.Generics (Generic)
+import Control.Category
 
 import Data.Key
 
