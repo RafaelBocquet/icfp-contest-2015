@@ -15,7 +15,6 @@ executable ICFP
                      , mtl
                      , vector
                      , bifunctors
-                     , located-base
                      , keys
                      , optparse-applicative
                      , monad-loops

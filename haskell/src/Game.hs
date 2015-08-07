@@ -38,6 +38,8 @@ data Unit = Unit
             }
             deriving (Show)
 
+data Command = MoveW | MoveE | MoveSW | MoveSE | RotateCW | RotateCCW
+
 instance FromJSON Problem where
   parseJSON (Object v) = Problem
                          <$> v .: "id"

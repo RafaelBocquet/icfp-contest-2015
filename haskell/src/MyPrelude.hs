@@ -23,10 +23,6 @@ module MyPrelude
        , module Control.Monad.Loops
        , module GHC.Generics
        , module Data.Key
-       , module Data.Either.Located
-       , module Data.List.Located
-       , module Data.Maybe.Located
-       , module GHC.Err.Located
        , module Control.Applicative.Unicode
        , module Control.Arrow.Unicode
        , module Control.Category.Unicode
@@ -54,7 +50,7 @@ module MyPrelude
 
 import System.Console.ANSI
 import Prelude hiding (error, undefined, lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
-import Data.List hiding (uncons, lookup, zipWith, zip, (!!), cycle, foldl1, head, init, last, tail, foldl1', foldr1, maximum, minimum)
+import Data.List hiding (uncons, lookup, zip, zipWith)
 import Data.Maybe hiding (fromJust)
 import Data.Bool
 import Data.Char
@@ -78,11 +74,6 @@ import Control.Monad.Loops
 import GHC.Generics (Generic)
 
 import Data.Key
-
-import Data.Either.Located
-import Data.List.Located hiding (uncons, lookup, zipWith, zip, foldl1, foldr1, minimum, maximum)
-import Data.Maybe.Located
-import GHC.Err.Located
 
 import Control.Applicative.Unicode hiding ((∅))
 import Control.Arrow.Unicode
