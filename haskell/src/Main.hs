@@ -106,18 +106,18 @@ main = do
                        & V.fromList
           forM (pb ^. problemSourceSeeds) $ \seed -> do
             c <- liftIO $ evalStateT (forM [1..pb^.problemSourceLength] (const solveOne))
-                 (SolverState seed (pb^.problemWidth) (pb^.problemHeight)
+                 (SolverState True seed (pb^.problemWidth) (pb^.problemHeight)
                   units'
                   (V.generate (pb^.problemHeight)
                    (\i -> V.generate (pb^.problemWidth)
                           (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
                  )
-            pure $ Solution (pb ^. problemId) seed "" (stringOfCommands $ concat c)
-  putStrLn (show (toJSON sol))
-  -- rsp <- postWith
-  --        (defaults
-  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-  --        "https://davar.icfpcontest.org/teams/99/solutions"
-  --        (toJSON $ concat sol)
-  -- putStrLn $ "Answer : " ++ show rsp
+            pure $ Solution (pb ^. problemId) seed "TAG" (stringOfCommands $ concat c)
+  print (encode (toJSON sol))
+  rsp <- postWith
+         (defaults
+          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+         "https://davar.icfpcontest.org/teams/99/solutions"
+         (toJSON $ concat sol)
+  putStrLn $ "Answer : " ++ show rsp
   pure ()
