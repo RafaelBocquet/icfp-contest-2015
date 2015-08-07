@@ -15,6 +15,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 
+import Network.Wreq hiding (options, header, Options)
 import System.Environment
 import Options.Applicative
 import Data.Aeson
@@ -53,7 +54,7 @@ main = do
               <> progDesc "ICFP 2015 !"
               <> header "Rafaël Bocquet & ???" )
   sol <- runVis (options ^. optVis) $ do
-    forM_ (options ^. optInput) $ \inputfile -> do
+    forM (options ^. optInput) $ \inputfile -> do
       input     <- liftIO $ BL.readFile inputfile
       visLine ("Input file : " ++ inputfile)
       case decode input :: Maybe Problem of
@@ -77,3 +78,12 @@ main = do
               setSGR [Reset]
               putChar ' '
             putChar '\n'
+          forM (pb ^. problemSourceSeeds) $ \seed -> do
+            pure $ Solution (pb ^. problemId) seed "" ""
+  rsp <- postWith
+         (defaults
+          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+         "https://davar.icfpcontest.org/teams/99/solutions"
+         (toJSON $ concat sol)
+  putStrLn $ "Answer : " ++ show rsp
+

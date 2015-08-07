@@ -3,7 +3,7 @@ module Game where
 
 import Prelude ()
 import MyPrelude
-import Data.Aeson
+import Data.Aeson as A
 
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
@@ -69,6 +69,13 @@ instance FromJSON Unit where
                          <$> (fmap pairOfCell <$> v .: "members")
                          <*> (pairOfCell <$> v .: "pivot")
   parseJSON _ = error "parseJSON: Unit"
+
+instance ToJSON Solution where
+  toJSON (Solution a b c d) = object [ "problemId" A..= a
+                                     , "seed" A..= b
+                                     , "tag" A..= c
+                                     , "solution" A..= d
+                                     ]
 
 makeLenses ''Problem
 makeLenses ''Cell
