@@ -41,6 +41,7 @@ data Unit = Unit
             deriving (Show)
 
 data Command = MoveW | MoveE | MoveSW | MoveSE | RotateCW | RotateCCW
+             deriving (Show)
 
 data Solution = Solution
                 { _solutionProblemId :: Integer

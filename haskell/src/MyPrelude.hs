@@ -38,6 +38,7 @@ module MyPrelude
        , module Control.DeepSeq.Generics
        , module System.Console.ANSI
        , module Control.Category
+       , module Data.Graph.Inductive
 
        , module System.IO
 
@@ -74,6 +75,7 @@ import Control.Monad.ST
 import Control.Monad.Loops
 import GHC.Generics (Generic)
 import Control.Category
+import Data.Graph.Inductive hiding (Context, Context', (&), pre, empty, ap)
 
 import Data.Key
 
