@@ -70,7 +70,7 @@ main = do
           forM_ [0..h-1] $ \i -> liftIO $ do
             when (i `mod` 2 /= 0) (putChar ' ')
             forM_ [0..w-1] $ \j -> do
-              if Set.member (i, j) f
+              if Set.member (j, i) f
                 then do
                 setSGR [SetColor Foreground Vivid Red]
                 putChar 'O'
