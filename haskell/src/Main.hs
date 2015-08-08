@@ -26,6 +26,7 @@ import Solver
 
 data Options = Options
                { _optInput  :: [String]
+               , _optTag    :: Maybe String
                , _optTime   :: Maybe Int
                , _optMemory :: Maybe Int
                , _optPower  :: Maybe String
@@ -40,6 +41,7 @@ options = Options
                       <> short 'f'
                       <> metavar "FILE"
                       <> help "Input file" ))
+          <*> optional (strOption ( long "tag" ))
           <*> optional (option auto ( short 't' ))
           <*> optional (option auto ( short 'm' ))
           <*> optional (strOption ( short 'p' ))
@@ -94,7 +96,7 @@ main = do
           let units' = pb ^. problemUnits
                        <&> (\x -> (x, computeUnitData (pb^.problemWidth) (pb^.problemHeight) x))
                        & V.fromList
-          forM (pb ^. problemSourceSeeds) $ \seed -> do
+          forM ((:[]) $ head $ pb ^. problemSourceSeeds) $ \seed -> do
             c <- liftIO $ evalStateT (forM [1..pb^.problemSourceLength] (const solveOne))
                  (SolverState True seed (pb^.problemWidth) (pb^.problemHeight)
                   units'
@@ -102,12 +104,12 @@ main = do
                    (\i -> V.generate (pb^.problemWidth)
                           (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
                  )
-            pure $ Solution (pb ^. problemId) seed "ULM2" (stringOfCommands $ concat c)
-  print (encode (toJSON sol))
-  rsp <- postWith
-         (defaults
-          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-         "https://davar.icfpcontest.org/teams/99/solutions"
-         (toJSON $ concat sol)
-  putStrLn $ "Answer : " ++ show rsp
+            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands $ concat (take 9 c))
+  -- print (encode (toJSON sol))
+  -- rsp <- postWith
+  --        (defaults
+  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+  --        "https://davar.icfpcontest.org/teams/99/solutions"
+  --        (toJSON $ concat sol)
+  -- putStrLn $ "Answer : " ++ show rsp
   pure ()

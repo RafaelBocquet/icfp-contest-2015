@@ -59,7 +59,7 @@ instance Num (Int, Int) where
 type Position = ((Int, Int), Rotation)
 
 encodeInt i | i >= 0 = 2*i
-            | i < 0 = 2*(-i)+1
+            | otherwise = 2*(-i)+1
 decodeInt i | i `mod` 2 == 0 = i `div` 2
             | otherwise  = - i`div`2
 
@@ -80,6 +80,10 @@ members u (p, r) = let pivotESE = u^.unitPivot.to toBaseESE
 computeUnitData :: Int -> Int -> Unit -> (Position, Gr (Maybe Command) Command)
 computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] [])))
   where
+    r2 = Set.fromList (members u ((0,0), RSW)) == Set.fromList (u^.unitMembers)
+    r3 = Set.fromList (members u ((0,0), RW)) == Set.fromList (u^.unitMembers)
+    normRot :: Rotation -> Rotation
+    normRot = toEnum . (`mod` (6`div`(if r2 then 3 else 1)`div`(if r3 then 2 else 1))) . fromEnum
     initl = minimum . fmap fst $ u^.unitMembers
     initr = maximum . fmap fst $ u^.unitMembers
     init = (((w-3*initl-initr-1)`div`2, 0), RE)
@@ -101,14 +105,14 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
                  , ((pse, r), MoveSE)
                  , (((x+1, y), r), MoveE)
                  , (((x-1, y), r), MoveW)
-                 -- , ((p, rotateCW r), RotateCW)
-                 -- , ((p, rotateCCW r), RotateCCW)
+                 -- , ((p, normRot (rotateCW r)), RotateCW)
+                 -- , ((p, normRot (rotateCCW r)), RotateCCW)
                  ]
         np' <- forM np $ \(b, a) -> do
           c <- go b
           when c (_2 %= insEdge (e, encodePosition w h b, a))
           pure (c, a)
-        let v = foldr1 (<|>) (np' <&> \(b, a) -> do guard b; Just a)
+        let v = foldr1 (<|>) (np' <&> \(b, a) -> do guard (not b); Just a)
         pure ()
       pure v
 
@@ -140,8 +144,6 @@ ldffWith a b c = fst (ldfWith a b c)
 
 -- TODO : need to associate "impossible / stop" moves to nodes
 -- TODO impossible move -> more choice to create phrases of power
-treePaths b (Node (i, (Nothing, l)) f) = (i, MoveSW:l++b) : concat (treePaths (l++b) <$> f)
-treePaths b (Node (i, (Just a, l)) f) = (i, a:l++b) : concat (treePaths (l++b) <$> f)
 
 clearFulls :: Vector (Vector Bool) -> Vector (Vector Bool)
 clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
@@ -149,7 +151,7 @@ clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
 
 solveOne :: Solver [Command]
 solveOne = do
-  n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral) $ stateRandom <%= (`mod` (2^32)) . (+ 12345) . (* 1103515245)
+  n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral) $ stateRandom <<%= (`mod` (2^32)) . (+ 12345) . (* 1103515245)
   un <- use stateUnits
   v <- use stateGrid
   let (u, (init, ugr)) = un V.! (n `mod` V.length un)
@@ -158,11 +160,15 @@ solveOne = do
   w <- use stateWidth
   h <- use stateHeight
   if r then do
+    -- liftIO $ clearScreen
+    -- liftIO $ setCursorPosition 0 0
     liftIO $ printMap (\i j -> v V.! j V.! i) w h
     liftIO $ putStrLn ""
-    liftIO $ printMap (\i j -> (i, j) `elem` members u init) w h
-    liftIO $ putStrLn ""
+    -- liftIO $ printMap (\i j -> (i, j) `elem` members u init) w h
+    -- liftIO $ putStrLn ""
     liftIO $ print init
+    let endFrom i = snd (head (filter (not . okpos . decodePosition w h . fst) (lsuc' (context ugr i))))
+        treePaths b (Node (i, (a, l)) f) = (i, fromMaybe (endFrom i) a:l++b) : concat (treePaths (l++b) <$> f)
     let ugr' = ugr
               & nfilter (okpos . decodePosition w h)
     let rgr = ugr'
