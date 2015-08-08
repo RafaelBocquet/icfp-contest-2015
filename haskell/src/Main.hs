@@ -24,6 +24,7 @@ import Data.Aeson
 import Vis
 import Game
 import Solver
+import Optimizer
 
 data Options = Options
                { _optInput  :: [String]
@@ -101,8 +102,8 @@ main = do
               initialMap = (V.generate (pb^.problemHeight)
                             (\i -> VU.generate (pb^.problemWidth)
                                    (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
-          forM (zip [0..] $ pb ^. problemSourceSeeds) $ \(seedi, seed) -> do
-            let initialStep = SolveStep seed True initialMap 0 0 mempty 0 0
+          forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds) $ \(seedi, seed) -> do
+            let initialStep = SolveStep seed True initialMap 0 0 mempty 0
             let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
             s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
             pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands $ toList $ s^.stepCommands)

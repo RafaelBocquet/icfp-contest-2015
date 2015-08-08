@@ -137,6 +137,7 @@ makeUpdate l =
 validEntry :: FillMap -> GraphEntry -> Bool
 validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
 
+-- TODO : find a way to make this incremental
 findReachable_ :: FillMap -> DList Command -> GraphEntry -> State IntSet (DList ((Int, FillMap), DList Command))
 findReachable_ v cs ge = do
   contains (ge ^. gePosition.to hash) .= True
@@ -166,28 +167,24 @@ data SolveStep = SolveStep
                  , _stepLastLines :: Int
                  , _stepCommands  :: DList Command
 
-                 , _stepFillScore :: Int -- ^ Fill Score : it is better to fill nonempty lines
-                 , _stepLowScore :: Int -- ^ Low Score : it is better to fill lines with high height (as we spawn from low heights)
+                 , _stepFillScore :: Ratio Integer
+                   -- ^ Fill Score : it is better to fill nonempty lines
+                   -- ^              it is better to fill lines with high height (as we spawn from low heights)
                  }
 makeLenses ''SolveStep
 
-getFillScore :: FillMap -> Int
-getFillScore = V.sum . V.map ((\x -> ((x+1)*x)`div`2) . VU.foldr (bool id (+1)) 0)
-
-getLowScore :: FillMap -> Int
-getLowScore v = V.sum . V.imap (\i -> VU.foldr (bool id (+ (V.length v-1-i))) 0) $ v
-
-branching, depth :: Int
-branching = 2
-depth     = 3
+getFillScore :: Int -> Int -> FillMap -> Ratio Integer
+getFillScore w h v = let w' = fromIntegral w
+                         h' = fromIntegral h in
+                     V.sum $ V.imap (\i v' -> let a = VU.foldl' (\x -> (+ x) . bool 0 1) 0 v'
+                                              in (50*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
+                                                 - (a * (fromIntegral $ V.length v - 1 - i)) % h'
+                                    ) v
 
 rankStep :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep w h s =
-  let w' = fromIntegral w in
-  let h' = fromIntegral h in
   fromIntegral (s ^. stepScore)
-  + (50 % (w'*w')) * fromIntegral (s ^. stepFillScore) -- Full line ~ 50pts = half the score from clearing a line
-  - (1 % h') * fromIntegral (s ^. stepLowScore) 
+  + (s ^. stepFillScore)
   - if s ^. stepRunning then 0 else 400 -- Losing is bad (but this measure is also bad)
 
 
@@ -210,14 +207,18 @@ singleStep s
                                          )
                                          l
                                          (s^.stepCommands <> cs)
-                                         (getFillScore v')
-                                         (getLowScore v')
+                                         (getFillScore w h v')
         pure $ take branching (sortBy (flip compare `on` rankStep w h) ss)
         else pure [s & stepRunning .~ False]
   | otherwise = pure [s]
 
 solveTree :: SolveStep -> Reader (Int, Int, Vector UnitData) (Tree SolveStep)
 solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
+
+-- TODO : make these depend on the problem size - constraints
+branching, depth :: Int
+branching = 2
+depth     = 3
 
 pickOne :: String -> Int -> Int -> Int -> Tree SolveStep -> IO SolveStep
 pickOne s w h 0 (Node a _)  = do
@@ -230,6 +231,6 @@ pickOne s w h i (Node a as) = do
     putStr $ s ++ show i ++ "    "
     hFlush stdout
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  -- liftIO $ print (a ^. stepScore)
+  -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore))
   -- liftIO $ putStrLn ""
   pickOne s w h (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))
