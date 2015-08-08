@@ -54,23 +54,23 @@ options = Options
             <> help "Visualisation folder" )
 
 
-printProblem :: Problem -> Vis ()
-printProblem pb = do
-  let w = pb ^. problemWidth
-      h = pb ^. problemHeight
-      f = pb ^. problemFilled & Set.fromList
-  visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
-  visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
-  visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
-  visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
-  liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
-  liftIO $ printMap (curry $ Set.member ?? f) w h
-  forM_ (pb ^. problemUnits) $ \u -> do
-    visLine (show $ computeUnitData w h u)
-    liftIO $ putStrLn "UNIT"
-    liftIO $ forM_ [minBound..maxBound] $ \r -> do
-      printUnit $ u & unitMembers .~ members u ((0, 0), r)
-      liftIO $ putStrLn "==="
+-- printProblem :: Problem -> Vis ()
+-- printProblem pb = do
+--   let w = pb ^. problemWidth
+--       h = pb ^. problemHeight
+--       f = pb ^. problemFilled & Set.fromList
+--   visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
+--   visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
+--   visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
+--   visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
+--   liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
+--   liftIO $ printMap (curry $ Set.member ?? f) w h
+--   forM_ (pb ^. problemUnits) $ \u -> do
+--     visLine (show $ computeUnitData w h u)
+--     liftIO $ putStrLn "UNIT"
+--     liftIO $ forM_ [minBound..maxBound] $ \r -> do
+--       printUnit $ u & unitMembers .~ members u ((0, 0), r)
+--       liftIO $ putStrLn "==="
 stringOfCommands :: [Command] -> String
 stringOfCommands = fmap (head . tail . (\case
                                             MoveW -> "p'!.03"
@@ -95,23 +95,17 @@ main = do
           visLine "Bad input"
           fail "Bad input"
         Just pb -> do
-          -- printProblem pb
           let units' = pb ^. problemUnits
-                       <&> (\x -> (x, computeUnitData (pb^.problemWidth) (pb^.problemHeight) x))
+                       <&> computeUnitData (pb^.problemWidth) (pb^.problemHeight)
                        & V.fromList
-          forM (pb ^. problemSourceSeeds) $ \seed -> do
-            let initState = SolverState True seed (pb^.problemWidth) (pb^.problemHeight)
-                            units'
-                            (V.generate (pb^.problemHeight)
-                             (\i -> VU.generate (pb^.problemWidth)
-                                    (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
-                            []
-                            0
-                            0
-                            0
-            let tree = stateTree initState
-            c <- liftIO $ pickOne (pb^.problemSourceLength) tree <&> (^. stateCommands)
-            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands c)
+              initialMap = (V.generate (pb^.problemHeight)
+                            (\i -> VU.generate (pb^.problemWidth)
+                                   (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
+          forM (zip [0..] $ pb ^. problemSourceSeeds) $ \(seedi, seed) -> do
+            let initialStep = SolveStep seed True initialMap 0 0 mempty 0 0
+            let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
+            s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
+            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands $ toList $ s^.stepCommands)
   print (encode (toJSON sol))
   when (options ^. optSend) $ do
     rsp <- postWith

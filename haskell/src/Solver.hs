@@ -20,6 +20,7 @@ import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
 
+import Data.Tuple
 import Linear
 
 import Game
@@ -64,25 +65,35 @@ toESE (x, y) = V2 (x - y `div` 2) y
 fromESE :: ESE -> (Int, Int)
 fromESE (V2 x y) = (x + y `div` 2, y)
 
-
+-- Position of the (0, 0) point of the unit (in ESE coords) and unit rotation
 type Position = (ESE, Rotation)
 
 -- UnitTransition a ~ Command -> a
 -- ordre : MoveW, MoveE, MoveSW, MoveSE, RotateCW, RotateCCW
 data UnitTransition a = UnitTransition a a a a a a
-                      deriving (Functor, Foldable, Traversable)
+                      deriving (Functor, Foldable, Traversable, Show)
+commandTransitions :: UnitTransition Command
+commandTransitions = UnitTransition MoveW MoveE MoveSW MoveSE RotateCW RotateCCW
+instance Applicative UnitTransition where
+  pure a = UnitTransition a a a a a a
+  UnitTransition a b c d e f <*> UnitTransition a' b' c' d' e' f' = UnitTransition (a a') (b b') (c c') (d d') (e e') (f f')
 -- This data structure is infinite if the graph is cyclic
 -- Transitions are O(1) !
 data GraphEntry = GraphEntry
                   { _gePosition    :: Position
                   , _geMembers     :: [(Int, Int)]
+                  , _geUpdate      :: FillMap -> FillMap
                   , _geTransitions :: UnitTransition (Maybe GraphEntry)
                   }
 
 data UnitData = UnitData
                 { _unitGraph   :: Map Position GraphEntry
                 , _unitInitial :: GraphEntry
+                , _unitSize    :: Int
                 }
+
+type FillMap = Vector (VU.Vector Bool)
+
 makeLenses ''GraphEntry
 makeLenses ''UnitData
 
@@ -91,7 +102,7 @@ computeUnitData w h u = udata
   where pivotESE = u^.unitPivot.to toESE
         members :: Position -> [(Int, Int)]
         members (p, r) = u ^. unitMembers
-                         <&> (toESE >>> (^-^ pivotESE) >>> rotESE r >>> (^+^ pivotESE) >>> (+ p) >>> fromESE)
+                         <&> (toESE >>> (^-^ pivotESE) >>> rotESE r >>> (^+^ (pivotESE ^+^ p)) >>> fromESE)
         r2 = Set.fromList (members (V2 0 0, RSW)) == Set.fromList (u^.unitMembers)
         r3 = Set.fromList (members (V2 0 0, RW)) == Set.fromList (u^.unitMembers)
         normRot :: Rotation -> Rotation
@@ -102,10 +113,11 @@ computeUnitData w h u = udata
 
         valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h))) . members
 
+        -- RecursiveDo : only one map traversal !
         go :: Position -> State (Map Position GraphEntry) (Maybe GraphEntry)
         go p | valid p = mdo
                  a <- (at p <<.= Just a)
-                      >>= maybe (GraphEntry p (members p)
+                      >>= maybe (GraphEntry p (members p) (makeUpdate $ members p)
                                  <$> (UnitTransition
                                       <$> go (p&_1._x-~1) <*> go (p&_1._x+~1)
                                       <*> go (p&_1._x-~1&_1._y+~1) <*> go (p&_1._y+~1)
@@ -115,143 +127,109 @@ computeUnitData w h u = udata
              | otherwise = pure Nothing
 
         udata = let (Just a, g) = runState (go init) Map.empty
-                in UnitData g a
+                in UnitData g a (u^.unitMembers.to length)
 
-type FillMap = Vector (VU.Vector Bool)
+makeUpdate :: [(Int, Int)] -> FillMap -> FillMap
+makeUpdate l =
+  let l' = l <&> swap & sort & groupBy ((==) `on` fst) <&> \(xs@((x,_):_)) -> (x, snd<$>xs)
+  in \v -> v V.// (l' <&> \(x, ys) -> (x, (v V.! x) VU.// zip ys (repeat True)))
 
--- computeUnitData :: Int -> Int -> Unit -> (Position, Gr (Maybe Command) Command, IntMap [(Int, Int)])
--- computeUnitData w h u = let ss = execState (go init) (mempty, mkGraph [] [], IntMap.empty) in (init, ss^._2, ss^._3)
---   where--     valid :: [(Int, Int)] -> Bool
---     valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h)))
---     getM :: Position -> State (Set Position, Gr (Maybe Command) Command, IntMap [(Int, Int)]) [(Int, Int)]
---     getM p = fmap fromJust $ _3.at (encodePosition w h p) <%= Just . maybe (members u p) id
+validEntry :: FillMap -> GraphEntry -> Bool
+validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
 
---     -- RecursiveDo !
---     go :: Position -> State (Set Position, Gr (Maybe Command) Command, IntMap [(Int, Int)]) Bool
---     go (p@(x,y),r) = do
---       let e = encodePosition w h (p, r)
---       b <- _1 . contains (p, r) <<.= True
---       v <- valid <$> getM (p, r)
---       when (v && not b) $ mdo
---         _2 %= insNode (e, v)
---         let psw = if y`mod`2 == 0 then (x-1, y+1) else (x, y+1)
---         let pse = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
---         let np = [ ((psw, r), MoveSW)
---                  , ((pse, r), MoveSE)
---                  , (((x+1, y), r), MoveE)
---                  , (((x-1, y), r), MoveW)
---                  , ((p, normRot (rotateCW r)), RotateCW)
---                  , ((p, normRot (rotateCCW r)), RotateCCW)
---                  ]
---         np' <- forM np $ \(b, a) -> do
---           c <- go b
---           when c (_2 %= insEdge (e, encodePosition w h b, a))
---           pure (c, a)
---         let v = foldr1 (<|>) (np' <&> \(b, a) -> do guard (not b); Just a)
---         pure ()
---       pure v
+findReachable_ :: FillMap -> DList Command -> GraphEntry -> State IntSet (DList ((Int, FillMap), DList Command))
+findReachable_ v cs ge = do
+  contains (ge ^. gePosition.to hash) .= True
+  b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
+    ex <- get
+    let d = do e <- maybe (Left False) Right a -- Left False : can be used to stop the current unit
+               when (IntSet.member (hash $ e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
+               when (not $ validEntry v e) (Left False)
+               pure e
+    forM d $ findReachable_ v (DL.snoc cs c)
+  let c = (,) <$> commandTransitions <*> b & toList & filter ((== Left False).snd) & fmap fst
+  pure $ maybe id (DL.cons . (clearFulls (ge^.geUpdate $ v),) . DL.snoc cs) (c^?_head) $ foldMap fold b
 
--- data SolverState = SolverState
---                    { _stateRunning  :: Bool
---                    , _stateRandom   :: Integer
---                    , _stateWidth    :: Int
---                    , _stateHeight   :: Int
---                    , _stateUnits    :: Vector (Unit, (Position, Gr (Maybe Command) Command, IntMap [(Int, Int)]))
---                    , _stateGrid     :: Vector (VU.Vector Bool)
---                    , _stateCommands :: [Command]
---                    , _stateLines    :: Int
---                    , _stateScore    :: Int
---                    , _stateTONAME   :: Int
---                    }
--- makeLenses ''SolverState
+findReachable :: FillMap -> UnitData -> DList ((Int, FillMap), DList Command)
+findReachable v u = evalState (findReachable_ v DL.empty (u^.unitInitial)) IntSet.empty
 
--- ldfWith :: Graph gr
---            => CFun a b [(Node, c)]
---            -> [(Node, c)]
---            -> gr a b
---            -> ([Tree (Node, (a, c))],gr a b)
--- ldfWith _ []     g             = ([],g)
--- ldfWith _ _      g | isEmpty g = ([],g)
--- ldfWith d ((v, m):vs) g = case match v g of
---   (Nothing,g1) -> ldfWith d vs g1
---   (Just c@(_,_,e,_),g1)  -> (Node (v, (e, m)) ts:ts',g3)
---     where (ts, g2) = ldfWith d (d c) g1
---           (ts', g3) = ldfWith d vs g2
--- ldffWith :: Graph gr => CFun a b [(Node, c)] → [(Node, c)] → gr a b → [Tree (Node, (a, c))]
--- ldffWith a b c = fst (ldfWith a b c)
+clearFulls :: FillMap -> (Int, FillMap)
+clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
+                   ls = V.length v - V.length v'
+               in (ls, V.replicate ls (VU.replicate (VU.length (V.head v)) False) <> v')
 
--- -- TODO : need to associate "impossible / stop" moves to nodes
--- -- TODO impossible move -> more choice to create phrases of power
+data SolveStep = SolveStep
+                 { _stepRandom    :: Int
+                 , _stepRunning   :: Bool
+                 , _stepFillMap   :: FillMap
+                 , _stepScore     :: Int
+                 , _stepLastLines :: Int
+                 , _stepCommands  :: DList Command
 
--- clearFulls :: Vector (VU.Vector Bool) -> (Int, Vector (VU.Vector Bool))
--- clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
---                    cleared = V.length v - V.length v'
---                in (cleared, V.replicate cleared (VU.replicate (VU.length (V.head v)) False) <> v')
+                 , _stepFillScore :: Int -- ^ Fill Score : it is better to fill nonempty lines
+                 , _stepLowScore :: Int -- ^ Low Score : it is better to fill lines with high height (as we spawn from low heights)
+                 }
+makeLenses ''SolveStep
 
--- branching, depth :: Int
--- branching = 2
--- depth = 2
+getFillScore :: FillMap -> Int
+getFillScore = V.sum . V.map ((\x -> ((x+1)*x)`div`2) . VU.foldr (bool id (+1)) 0)
 
--- plop n = n*(n+1)`div`2
+getLowScore :: FillMap -> Int
+getLowScore v = V.sum . V.imap (\i -> VU.foldr (bool id (+ (V.length v-1-i))) 0) $ v
 
--- solveOne :: SolverState -> [SolverState]
--- solveOne s = do
---   let n = (.&. 0x7FFF) . flip shiftR 16 . fromIntegral $ s^.stateRandom
---       v = s^.stateGrid
---       (u, (init, ugr, umems)) = (s^.stateUnits) V.! (n `mod` V.length (s^.stateUnits))
---       w = s^.stateWidth
---       h = s^.stateHeight
---       okpos p = all (\(i, j) -> not $ v V.! j VU.! i) $ fromJust (lookup (encodePosition w h p) umems)
---       r = s^.stateRunning && okpos init
---       s' = s & stateRunning .~ r & stateRandom %~ (`mod` (2^32)) . (+ 12345) . (* 1103515245)
---   if r
---     then do
---     let endFrom i = case filter (not . okpos . decodePosition w h . fst) (lsuc' (context ugr i)) of
---           [] -> Nothing; (_,a):_ -> Just a
---         treePaths :: DList Command -> Tree (Node, (Maybe Command, DList Command)) -> DList (Node, DList Command)
---         treePaths b (Node (i, (a, l)) f) = maybe id (\x -> ((i, x`DL.cons`l<>b) `DL.cons`)) (a <|> endFrom i) (mconcat (treePaths (l<>b) <$> f))
---         r1 = ugr & nfilter (okpos . decodePosition w h)
---         r2 = r1 & ldffWith (fmap (second (DL.cons ?? DL.empty)) . lsuc') [(encodePosition w h init, DL.empty)]
---         r3 = r2 <&> treePaths DL.empty & mconcat & DL.toList
---         r4 = r3 <&> (\(p@(decodePosition w h -> ((x, y), r)), DL.toList -> c) -> do
---                          let dt = fromJust (lookup p umems)
---                                   <&> (\(x, y) -> (y, x))
---                                   & sort & groupBy ((==) `on` fst)
---                                   <&> (\xs@((x,_):_) -> (x, snd <$> xs))
---                              v' = v V.// (dt <&> \(x, y) -> (x, v V.! x VU.// zip y (repeat True)))
---                              (ls, v'') = clearFulls v'
---                              points  = length (u^.unitMembers) + 50*(ls+1)*ls
---                              lsln    = s^.stateLines
---                              tpoints = points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
---                              toname  = V.sum (plop . VU.foldr (bool id (+1)) 0 <$> v'')
---                          (ls, reverse c, v'', tpoints, toname)
---                     )
---         us (ls, c, v', pts, tn) = s'
---                                   & stateTONAME .~ tn
---                                   & stateCommands %~ (++ c)
---                                   & stateGrid .~ v'
---                                   & stateLines .~ ls
---                                   & stateScore +~ pts
---     r4 & sortBy (compare `on` (\(_,cmd,_,pts,tn) -> (-pts, -tn, -length cmd))) & take branching & fmap us
---     else [s']
+branching, depth :: Int
+branching = 2
+depth     = 3
 
--- stateTree :: SolverState -> (Tree SolverState)
--- stateTree s = Node s (stateTree <$> solveOne s)
+rankStep :: Int -> Int -> SolveStep -> Ratio Integer
+rankStep w h s =
+  let w' = fromIntegral w in
+  let h' = fromIntegral h in
+  fromIntegral (s ^. stepScore)
+  + (50 % (w'*w')) * fromIntegral (s ^. stepFillScore) -- Full line ~ 50pts = half the score from clearing a line
+  - (1 % h') * fromIntegral (s ^. stepLowScore) 
+  - if s ^. stepRunning then 0 else 400 -- Losing is bad (but this measure is also bad)
 
--- rankState :: SolverState -> Ratio Integer
--- rankState s =
---   let w = fromIntegral $ s ^. stateWidth in
---   fromIntegral (s ^. stateScore)
---   + (50 % (w*w)) * fromIntegral (s ^. stateTONAME)
 
--- pickOne :: Int -> Tree SolverState -> IO SolverState
--- pickOne 0 (Node a _)  = do
---   liftIO $ printMap (\i j -> (a^.stateGrid) V.! j VU.! i) (a^.stateWidth) (a^.stateHeight)
---   print (a ^. stateScore)
---   pure a
--- pickOne i (Node a as) = do
---   liftIO $ printMap (\i j -> (a^.stateGrid) V.! j VU.! i) (a^.stateWidth) (a^.stateHeight)
---   liftIO $ print (a ^. stateScore)
---   liftIO $ putStrLn ""
---   -- pickOne (i-1) $ as & head
---   pickOne (i-1) $ as & maximumBy (compare `on` (maximum . fmap rankState . (!! depth) . levels))
+singleStep :: SolveStep -> Reader (Int, Int, Vector UnitData) [SolveStep]
+singleStep s
+  | s ^. stepRunning = do
+      let n = (.&. 0x7FFF) . flip shiftR 16 . fromIntegral $ s^.stepRandom
+          nr = (.&. 0xFFFFFFFF) . (+ 12345) . (* 1103515245) $ s^.stepRandom
+          v = s ^. stepFillMap
+      (w, h, us) <- ask
+      let u = us V.! (n `mod` V.length us)
+      if validEntry v (u^.unitInitial)
+        then do
+        let r = DL.toList (findReachable v u)
+            ss = r <&> \((l, v'), cs) -> SolveStep nr True v'
+                                         (s^.stepScore +
+                                          let points = (u^.unitSize) + 50*(1+l)*l
+                                              lsln = s^.stepLastLines
+                                          in points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
+                                         )
+                                         l
+                                         (s^.stepCommands <> cs)
+                                         (getFillScore v')
+                                         (getLowScore v')
+        pure $ take branching (sortBy (flip compare `on` rankStep w h) ss)
+        else pure [s & stepRunning .~ False]
+  | otherwise = pure [s]
+
+solveTree :: SolveStep -> Reader (Int, Int, Vector UnitData) (Tree SolveStep)
+solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
+
+pickOne :: String -> Int -> Int -> Int -> Tree SolveStep -> IO SolveStep
+pickOne s w h 0 (Node a _)  = do
+  -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+  -- print (a ^. stepScore)
+  pure a
+pickOne s w h i (Node a as) = do
+  liftIO $ do
+    putChar '\r'
+    putStr $ s ++ show i ++ "    "
+    hFlush stdout
+  -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+  -- liftIO $ print (a ^. stepScore)
+  -- liftIO $ putStrLn ""
+  pickOne s w h (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))

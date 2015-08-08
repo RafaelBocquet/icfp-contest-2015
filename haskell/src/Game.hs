@@ -24,7 +24,7 @@ data Problem = Problem
                , _problemHeight :: Int
                , _problemFilled :: [(Int, Int)]
                , _problemSourceLength :: Int
-               , _problemSourceSeeds :: [Integer]
+               , _problemSourceSeeds :: [Int]
                }
                deriving (Show)
 
@@ -41,13 +41,13 @@ data Unit = Unit
             deriving (Show)
 
 data Command = MoveW | MoveE | MoveSW | MoveSE | RotateCW | RotateCCW
-             deriving (Show, Generic)
+             deriving (Eq, Ord, Show, Generic)
 instance Hashable Command
 instance NFData Command
 
 data Solution = Solution
                 { _solutionProblemId :: Integer
-                , _solutionSeed      :: Integer
+                , _solutionSeed      :: Int
                 , _solutionTag       :: String
                 , _solutionCommands  :: String
                 }
