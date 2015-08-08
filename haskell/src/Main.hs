@@ -32,7 +32,7 @@ data Options = Options
                , _optTag    :: Maybe String
                , _optTime   :: Maybe Int
                , _optMemory :: Maybe Int
-               , _optPower  :: Maybe String
+               , _optPower  :: [String]
                , _optSend   :: Bool
                , _optVis    :: String
                }
@@ -48,13 +48,12 @@ options = Options
           <*> optional (strOption ( long "tag" ))
           <*> optional (option auto ( short 't' ))
           <*> optional (option auto ( short 'm' ))
-          <*> optional (strOption ( short 'p' ))
+          <*> many (strOption ( short 'p' ))
           <*> switch ( long "send" )
           <*> strOption
           ( long "vis"
             <> short 'v'
             <> help "Visualisation folder" )
-
 
 -- printProblem :: Problem -> Vis ()
 -- printProblem pb = do
@@ -73,14 +72,6 @@ options = Options
 --     liftIO $ forM_ [minBound..maxBound] $ \r -> do
 --       printUnit $ u & unitMembers .~ members u ((0, 0), r)
 --       liftIO $ putStrLn "==="
-stringOfCommands :: [Command] -> String
-stringOfCommands = fmap (head . tail . (\case
-                                            MoveW -> "p'!.03"
-                                            MoveE -> "bcefy2"
-                                            MoveSW -> "aghij4"
-                                            MoveSE -> "lmno 5"
-                                            RotateCW -> "dqrvz1"
-                                            RotateCCW -> "kstuwx"))
 
 main :: IO ()
 main = do
@@ -103,14 +94,19 @@ main = do
               initialMap = (V.generate (pb^.problemHeight)
                             (\i -> VU.generate (pb^.problemWidth)
                                    (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
-          forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds) $ \(seedi, seed) -> do
-            let initialStep = SolveStep seed True initialMap 0 0 mempty 0
-            let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
-            s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
-            let cmds = toList $ s^.stepCommands
-            let opt = optimize $ oacFromList $ cmds
-            liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
-            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList)
+          (scs, sol) <- fmap unzip
+                        $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
+                        $ \(seedi, seed) -> do
+                          let initialStep = SolveStep seed True initialMap 0 0 mempty 0
+                          let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
+                          s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
+                          let cmds = toList $ s^.stepCommands
+                          let opt = optimize $ oacFromList $ cmds
+                          let sc = s^.stepScore + 2 * _oScore opt + 300 * Map.size (_oWhich opt)
+                          liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
+                          pure $ (sc, Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList))
+          liftIO $ putStrLn $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))
+          pure sol
   when (options ^. optSend) $ do
     rsp <- postWith
            (defaults
