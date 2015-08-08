@@ -23,7 +23,7 @@ data Problem = Problem
                , _problemWidth :: Int
                , _problemHeight :: Int
                , _problemFilled :: [(Int, Int)]
-               , _problemSourceLength :: Integer
+               , _problemSourceLength :: Int
                , _problemSourceSeeds :: [Integer]
                }
                deriving (Show)

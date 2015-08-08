@@ -69,13 +69,13 @@ printProblem pb = do
       printUnit $ u & unitMembers .~ members u ((0, 0), r)
       liftIO $ putStrLn "==="
 stringOfCommands :: [Command] -> String
-stringOfCommands = fmap (head . (\case
-                                     MoveW -> "p'!.03"
-                                     MoveE -> "bcefy2"
-                                     MoveSW -> "aghij4"
-                                     MoveSE -> "lmno 5"
-                                     RotateCW -> "dqrvz1"
-                                     RotateCCW -> "kstuwx"))
+stringOfCommands = fmap (head . tail . (\case
+                                            MoveW -> "p'!.03"
+                                            MoveE -> "bcefy2"
+                                            MoveSW -> "aghij4"
+                                            MoveSE -> "lmno 5"
+                                            RotateCW -> "dqrvz1"
+                                            RotateCCW -> "kstuwx"))
 
 main :: IO ()
 main = do
@@ -92,24 +92,27 @@ main = do
           visLine "Bad input"
           fail "Bad input"
         Just pb -> do
-          printProblem pb
+          -- printProblem pb
           let units' = pb ^. problemUnits
                        <&> (\x -> (x, computeUnitData (pb^.problemWidth) (pb^.problemHeight) x))
                        & V.fromList
-          forM ((:[]) $ head $ pb ^. problemSourceSeeds) $ \seed -> do
-            c <- liftIO $ evalStateT (forM [1..pb^.problemSourceLength] (const solveOne))
-                 (SolverState True seed (pb^.problemWidth) (pb^.problemHeight)
-                  units'
-                  (V.generate (pb^.problemHeight)
-                   (\i -> V.generate (pb^.problemWidth)
-                          (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
-                 )
-            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands $ concat (take 9 c))
-  -- print (encode (toJSON sol))
-  -- rsp <- postWith
-  --        (defaults
-  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-  --        "https://davar.icfpcontest.org/teams/99/solutions"
-  --        (toJSON $ concat sol)
-  -- putStrLn $ "Answer : " ++ show rsp
+          forM (pb ^. problemSourceSeeds) $ \seed -> do
+            let initState = SolverState True seed (pb^.problemWidth) (pb^.problemHeight)
+                            units'
+                            (V.generate (pb^.problemHeight)
+                             (\i -> V.generate (pb^.problemWidth)
+                                    (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
+                            []
+                            0
+                            0
+            let tree = stateTree initState
+            c <- liftIO $ pickOne (pb^.problemSourceLength) tree <&> (^. stateCommands)
+            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands c)
+  print (encode (toJSON sol))
+  rsp <- postWith
+         (defaults
+          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+         "https://davar.icfpcontest.org/teams/99/solutions"
+         (toJSON $ concat sol)
+  putStrLn $ "Answer : " ++ show rsp
   pure ()

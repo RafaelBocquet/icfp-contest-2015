@@ -56,7 +56,7 @@ module MyPrelude
 import System.Console.ANSI
 import Prelude hiding (id, (.), lookup, zipWith, zip, (!!), cycle, head, init, tail, last)
 import Data.List hiding (uncons, lookup, zip, zipWith)
-import Data.Maybe hiding (fromJust)
+import Data.Maybe
 import Data.Bool
 import Data.Char
 import Data.Monoid
@@ -66,7 +66,7 @@ import Data.Traversable
 import Data.Bifunctor
 import Data.Bifoldable
 import Data.Bitraversable
-import Control.Lens hiding (Indexable, index)
+import Control.Lens hiding (Indexable, index, levels)
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
@@ -80,7 +80,7 @@ import GHC.Generics (Generic)
 import Control.Category
 import Data.Graph.Inductive hiding (Context, Context', (&), pre, empty, ap)
 import Data.Bits
-import Data.Tree hiding (levels)
+import Data.Tree
 import Data.Function (on)
 
 import Data.Key

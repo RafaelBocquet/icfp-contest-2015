@@ -1,8 +1,10 @@
 module Solver where
 
 import Prelude ()
-import MyPrelude
+import MyPrelude hiding (head)
 import Debug.Trace
+
+import Data.List.Located (head)
 
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
@@ -15,8 +17,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
-
-import Debug.Trace
 
 import Game
 
@@ -58,17 +58,18 @@ instance Num (Int, Int) where
 
 type Position = ((Int, Int), Rotation)
 
+encodeInt, decodeInt :: Int -> Int
 encodeInt i | i >= 0 = 2*i
             | otherwise = 2*(-i)+1
 decodeInt i | i `mod` 2 == 0 = i `div` 2
             | otherwise  = - i`div`2
 
 encodePosition :: Int -> Int -> Position -> Int
-encodePosition w h ((x, y), r) = fromEnum r+6*(encodeInt y+2*h*encodeInt x)
+encodePosition w h ((x, y), r) = fromEnum r+6*(encodeInt y+2*(h+2)*encodeInt x)
 
 decodePosition :: Int -> Int -> Int -> Position
 decodePosition w h i = let (xy, r) = i `divMod` 6
-                           (x, y) = xy `divMod` (2*h)
+                           (x, y) = xy `divMod` (2*(h+2))
                        in ((decodeInt x, decodeInt y), toEnum r)
 
 
@@ -105,8 +106,8 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
                  , ((pse, r), MoveSE)
                  , (((x+1, y), r), MoveE)
                  , (((x-1, y), r), MoveW)
-                 -- , ((p, normRot (rotateCW r)), RotateCW)
-                 -- , ((p, normRot (rotateCCW r)), RotateCCW)
+                 , ((p, normRot (rotateCW r)), RotateCW)
+                 , ((p, normRot (rotateCCW r)), RotateCCW)
                  ]
         np' <- forM np $ \(b, a) -> do
           c <- go b
@@ -117,15 +118,17 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
       pure v
 
 data SolverState = SolverState
-                   { _stateRunning :: Bool
-                   , _stateRandom  :: Integer
-                   , _stateWidth   :: Int
-                   , _stateHeight  :: Int
-                   , _stateUnits   :: Vector (Unit, (Position, Gr (Maybe Command) Command))
-                   , _stateGrid    :: Vector (Vector Bool)
+                   { _stateRunning  :: Bool
+                   , _stateRandom   :: Integer
+                   , _stateWidth    :: Int
+                   , _stateHeight   :: Int
+                   , _stateUnits    :: Vector (Unit, (Position, Gr (Maybe Command) Command))
+                   , _stateGrid     :: Vector (Vector Bool)
+                   , _stateCommands :: [Command]
+                   , _stateLines    :: Int
+                   , _stateScore    :: Int
                    }
 makeLenses ''SolverState
-type Solver a = StateT SolverState IO a
 
 ldfWith :: Graph gr
            => CFun a b [(Node, c)]
@@ -145,48 +148,64 @@ ldffWith a b c = fst (ldfWith a b c)
 -- TODO : need to associate "impossible / stop" moves to nodes
 -- TODO impossible move -> more choice to create phrases of power
 
-clearFulls :: Vector (Vector Bool) -> Vector (Vector Bool)
+clearFulls :: Vector (Vector Bool) -> (Int, Vector (Vector Bool))
 clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
-               in V.replicate (V.length v - V.length v') (V.replicate (V.length (V.head v)) False) <> v'
+                   cleared = V.length v - V.length v'
+               in (cleared, V.replicate cleared (V.replicate (V.length (V.head v)) False) <> v')
 
-solveOne :: Solver [Command]
-solveOne = do
-  n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral) $ stateRandom <<%= (`mod` (2^32)) . (+ 12345) . (* 1103515245)
-  un <- use stateUnits
-  v <- use stateGrid
-  let (u, (init, ugr)) = un V.! (n `mod` V.length un)
-  let okpos p = all (\(i, j) -> not $ v V.! j V.! i) $ members u p
-  r <- stateRunning <%= (&& okpos init)
-  w <- use stateWidth
-  h <- use stateHeight
-  if r then do
-    -- liftIO $ clearScreen
-    -- liftIO $ setCursorPosition 0 0
-    liftIO $ printMap (\i j -> v V.! j V.! i) w h
-    liftIO $ putStrLn ""
-    -- liftIO $ printMap (\i j -> (i, j) `elem` members u init) w h
-    -- liftIO $ putStrLn ""
-    liftIO $ print init
-    let endFrom i = snd (head (filter (not . okpos . decodePosition w h . fst) (lsuc' (context ugr i))))
-        treePaths b (Node (i, (a, l)) f) = (i, fromMaybe (endFrom i) a:l++b) : concat (treePaths (l++b) <$> f)
-    let ugr' = ugr
+branching, depth :: Int
+branching = 2
+depth = 4
+
+solveOne :: SolverState -> [SolverState]
+solveOne s = do
+  let n = (.&. 0x7FFF) . flip shiftR 16 . fromIntegral $ s^.stateRandom
+      v = s^.stateGrid
+      (u, (init, ugr)) = (s^.stateUnits) V.! (n `mod` V.length (s^.stateUnits))
+      w = s^.stateWidth
+      h = s^.stateHeight
+      okpos p = all (\(i, j) -> not $ v V.! j V.! i) $ members u p
+      r = s^.stateRunning && okpos init
+      s' = s & stateRunning .~ r & stateRandom %~ (`mod` (2^32)) . (+ 12345) . (* 1103515245)
+  if r
+    then do
+    let endFrom i = filter (not . okpos . decodePosition w h . fst) (lsuc' (context ugr i))^?_head<&>snd
+        treePaths b (Node (i, (a, l)) f) = maybe id (\x -> ((i, x:l++b) :)) (a <|> endFrom i) (concat (treePaths (l++b) <$> f))
+        rgr = ugr
               & nfilter (okpos . decodePosition w h)
-    let rgr = ugr'
               & ldffWith (fmap (second (:[])) . lsuc') [(encodePosition w h init, [])]
               & concat . fmap (treePaths [])
-              & sortBy (compare `on` (length.snd))
-              & reverse
-    if null rgr
-      then do
-      pure []
-      else do
-      let (decodePosition w h -> ((x, y), r), c) = head rgr
-          dt = members u ((x, y), r) & fmap (\(x, y) -> (y, x)) & sort & groupBy ((==) `on` fst) & fmap (\xs@((x,_):_) -> (x, snd <$> xs))
-      liftIO $ print dt
-      liftIO $ print (reverse c)
-      stateGrid %= (V.// (dt <&> \(x, y) -> (x, v V.! x V.// zip y (repeat True))))
-      stateGrid %= clearFulls
-      pure (reverse c)
-    else do
-    traceShowM r
-    pure []
+              <&> (\(decodePosition w h -> ((x, y), r), c) -> do
+                       let dt = members u ((x, y), r)
+                                <&> (\(x, y) -> (y, x))
+                                & sort & groupBy ((==) `on` fst)
+                                <&> (\xs@((x,_):_) -> (x, snd <$> xs))
+                           v' = v V.// (dt <&> \(x, y) -> (x, v V.! x V.// zip y (repeat True)))
+                           (ls, v'') = clearFulls v'
+                           points  = length (u^.unitMembers) + 50*(ls+1)*ls
+                           lsln    = s^.stateLines
+                           tpoints = points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
+                       (ls, reverse c, v'', tpoints)
+                  )
+        us (ls, c, v', pts) = s'
+                              & stateCommands %~ (++ c)
+                              & stateGrid .~ v'
+                              & stateLines .~ ls
+                              & stateScore +~ pts
+    rgr & sortBy (compare `on` (\(_,cmd,_,pts) -> (-pts, -length cmd))) & take branching & fmap us
+    else [s']
+
+stateTree :: SolverState -> (Tree SolverState)
+stateTree s = Node s (stateTree <$> solveOne s)
+
+pickOne :: Int -> Tree SolverState -> IO SolverState
+pickOne 0 (Node a _)  = do
+  liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
+  print (a ^. stateScore)
+  pure a
+pickOne i (Node a as) = do
+  liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
+  liftIO $ print (a ^. stateScore)
+  liftIO $ putStrLn ""
+  -- pickOne (i-1) $ as & head
+  pickOne (i-1) $ as & maximumBy (compare `on` (maximum . fmap (view stateScore) . (!! depth) . levels))
