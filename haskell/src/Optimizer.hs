@@ -20,10 +20,21 @@ import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
 
+import Game
+
 data Output a = OEmpty
-              | OCons a (Output a)
+              | OSingle a
+              | OAppend (Output a) (Output a)
               | OAlt (Output a) (Output a)
-              deriving (Show, Eq, Ord)
+              deriving (Show, Eq, Ord, Functor)
+
+instance Applicative Output where pure = return; (<*>) = ap
+instance Monad Output where
+  return = OSingle
+  OEmpty      >>= f = OEmpty
+  OSingle x   >>= f = f x
+  OAppend a b >>= f = OAppend (a >>= f) (b >>= f)
+  OAlt a b    >>= f = OAlt (a >>= f) (b >>= f)
 
 data Trie b a = Trie { _trieLabel :: b, _trieChildren :: [(a, Trie b a)] }
               deriving (Show)
@@ -82,20 +93,55 @@ runAC ac x (a:as) = x : runAC ac (acNext ac x a) as
 thisMatches :: Ord a => AC a -> Int -> [Int]
 thisMatches (m, _) x = fromJust (lookup x m) ^. acMatches
 
--- acThisMatches :: Ord a => AC a -> Int -> [Int]
+--
 
+
+-- Map from AC State to max score
+data OEntry a = OEntry { _oScore :: Int, _oList :: DList a }
+            deriving (Show)
+
+maxEntry :: OEntry a -> OEntry a -> OEntry a
+maxEntry (OEntry a x) (OEntry b y) = if a >= b then OEntry a x else OEntry b y
+
+appEntry :: OEntry a -> OEntry a -> OEntry a
+appEntry (OEntry a x) (OEntry b y) = OEntry (a+b) (x<>y)
+
+type OState a = IntMap (OEntry a)
+
+oacNext :: Ord a => AC a -> Output a -> Int -> OState a
+oacNext ac OEmpty      x = IntMap.singleton x (OEntry 0 DL.empty)
+oacNext ac (OSingle a) x = let y = acNext ac x a
+                           in IntMap.singleton y (OEntry (length (thisMatches ac y)) (DL.cons a DL.empty))
+oacNext ac (OAppend a b) x = IntMap.toList (oacNext ac a x)
+                             <&> (\(y, o) -> oacNext ac b y <&> appEntry o)
+                             & IntMap.unionsWith maxEntry
+oacNext ac (OAlt a b) x = IntMap.unionWith maxEntry (oacNext ac a x) (oacNext ac b x)
+
+oacFromList :: [a] -> Output a
+oacFromList = foldr OAppend OEmpty . fmap OSingle
 
 --
 
--- type OState = IntMap Int
+outputString :: Output Command -> Output Char
+outputString = (=<<) $ foldr1 OAlt . fmap OSingle
+               . (\case
+                      MoveW -> "p'!.03" :: String
+                      MoveE -> "bcefy2"
+                      MoveSW -> "aghij4"
+                      MoveSE -> "lmno 5"
+                      RotateCW -> "dqrvz1"
+                      RotateCCW -> "kstuwx"
+                 )
 
---
+optimize :: Output Command -> String
+optimize o = let x = oacNext (makeAC (makeTrie powerPhrases)) (outputString o) 0
+             in x & IntMap.toList <&> snd & maximumBy (compare `on` _oScore) & _oList & DL.toList
 
 powerPhrases :: [[Char]]
 powerPhrases = [ "ei!"
-               -- , "ia! ia!"
-               -- , "r'lyeh"
-               -- , "yuggoth"
-               -- , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
-               -- , "blue hades"
+               , "ia! ia!"
+               , "r'lyeh"
+               , "yuggoth"
+               , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
+               , "blue hades"
                ]
