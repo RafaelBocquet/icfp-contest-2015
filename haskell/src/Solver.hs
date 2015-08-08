@@ -127,6 +127,7 @@ data SolverState = SolverState
                    , _stateCommands :: [Command]
                    , _stateLines    :: Int
                    , _stateScore    :: Int
+                   , _stateTONAME :: Int
                    }
 makeLenses ''SolverState
 
@@ -154,8 +155,10 @@ clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
                in (cleared, V.replicate cleared (V.replicate (V.length (V.head v)) False) <> v')
 
 branching, depth :: Int
-branching = 2
-depth = 4
+branching = 3
+depth = 3
+
+plop n = n*(n+1)`div`2
 
 solveOne :: SolverState -> [SolverState]
 solveOne s = do
@@ -185,18 +188,26 @@ solveOne s = do
                            points  = length (u^.unitMembers) + 50*(ls+1)*ls
                            lsln    = s^.stateLines
                            tpoints = points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
-                       (ls, reverse c, v'', tpoints)
+                           toname  = V.sum (plop . V.foldr (bool id (+1)) 0 <$> v'')
+                       (ls, reverse c, v'', tpoints, toname)
                   )
-        us (ls, c, v', pts) = s'
-                              & stateCommands %~ (++ c)
-                              & stateGrid .~ v'
-                              & stateLines .~ ls
-                              & stateScore +~ pts
-    rgr & sortBy (compare `on` (\(_,cmd,_,pts) -> (-pts, -length cmd))) & take branching & fmap us
+        us (ls, c, v', pts, tn) = s'
+                                  & stateTONAME .~ tn
+                                  & stateCommands %~ (++ c)
+                                  & stateGrid .~ v'
+                                  & stateLines .~ ls
+                                  & stateScore +~ pts
+    rgr & sortBy (compare `on` (\(_,cmd,_,pts,tn) -> (-pts, -tn, -length cmd))) & take branching & fmap us
     else [s']
 
 stateTree :: SolverState -> (Tree SolverState)
 stateTree s = Node s (stateTree <$> solveOne s)
+
+rankState :: SolverState -> Ratio Integer
+rankState s =
+  let w = fromIntegral $ s ^. stateWidth in
+  fromIntegral (s ^. stateScore)
+  + (25 % (w*w)) * fromIntegral (s ^. stateTONAME)
 
 pickOne :: Int -> Tree SolverState -> IO SolverState
 pickOne 0 (Node a _)  = do
@@ -208,4 +219,4 @@ pickOne i (Node a as) = do
   liftIO $ print (a ^. stateScore)
   liftIO $ putStrLn ""
   -- pickOne (i-1) $ as & head
-  pickOne (i-1) $ as & maximumBy (compare `on` (maximum . fmap (view stateScore) . (!! depth) . levels))
+  pickOne (i-1) $ as & maximumBy (compare `on` (maximum . fmap rankState . (!! depth) . levels))

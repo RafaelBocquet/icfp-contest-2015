@@ -105,6 +105,7 @@ main = do
                             []
                             0
                             0
+                            0
             let tree = stateTree initState
             c <- liftIO $ pickOne (pb^.problemSourceLength) tree <&> (^. stateCommands)
             pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands c)

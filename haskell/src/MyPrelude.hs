@@ -42,6 +42,8 @@ module MyPrelude
        , module Data.Tree
        , module Data.Graph.Inductive
        , module System.IO
+       , module Data.Hashable
+       , module Data.Ratio
 
        , on
 
@@ -82,6 +84,8 @@ import Data.Graph.Inductive hiding (Context, Context', (&), pre, empty, ap)
 import Data.Bits
 import Data.Tree
 import Data.Function (on)
+import Data.Hashable
+import Data.Ratio
 
 import Data.Key
 
