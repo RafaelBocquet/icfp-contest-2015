@@ -169,7 +169,7 @@ clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
 
 branching, depth :: Int
 branching = 2
-depth = 4
+depth = 3
 
 plop n = n*(n+1)`div`2
 
@@ -224,12 +224,12 @@ rankState s =
 
 pickOne :: Int -> Tree SolverState -> IO SolverState
 pickOne 0 (Node a _)  = do
-  liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
-  print (a ^. stateScore)
+  -- liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
+  -- print (a ^. stateScore)
   pure a
 pickOne i (Node a as) = do
-  liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
-  liftIO $ print (a ^. stateScore)
-  liftIO $ putStrLn ""
+  -- liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
+  -- liftIO $ print (a ^. stateScore)
+  -- liftIO $ putStrLn ""
   -- pickOne (i-1) $ as & head
   pickOne (i-1) $ as & maximumBy (compare `on` (maximum . fmap rankState . (!! depth) . levels))

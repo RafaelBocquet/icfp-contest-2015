@@ -30,7 +30,6 @@ data Options = Options
                , _optTime   :: Maybe Int
                , _optMemory :: Maybe Int
                , _optPower  :: Maybe String
-               , _optVis    :: String
                }
 makeLenses ''Options
 
@@ -45,29 +44,25 @@ options = Options
           <*> optional (option auto ( short 't' ))
           <*> optional (option auto ( short 'm' ))
           <*> optional (strOption ( short 'p' ))
-          <*> strOption
-          ( long "vis"
-            <> short 'v'
-            <> help "Visualisation folder" )
 
 
-printProblem :: Problem -> Vis ()
-printProblem pb = do
-  let w = pb ^. problemWidth
-      h = pb ^. problemHeight
-      f = pb ^. problemFilled & Set.fromList
-  visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
-  visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
-  visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
-  visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
-  liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
-  liftIO $ printMap (curry $ Set.member ?? f) w h
-  forM_ (pb ^. problemUnits) $ \u -> do
-    visLine (show $ computeUnitData w h u)
-    liftIO $ putStrLn "UNIT"
-    liftIO $ forM_ [minBound..maxBound] $ \r -> do
-      printUnit $ u & unitMembers .~ members u ((0, 0), r)
-      liftIO $ putStrLn "==="
+-- printProblem :: Problem -> Vis ()
+-- printProblem pb = do
+--   let w = pb ^. problemWidth
+--       h = pb ^. problemHeight
+--       f = pb ^. problemFilled & Set.fromList
+--   visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
+--   visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
+--   visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
+--   visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
+--   liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
+--   liftIO $ printMap (curry $ Set.member ?? f) w h
+--   forM_ (pb ^. problemUnits) $ \u -> do
+--     visLine (show $ computeUnitData w h u)
+--     liftIO $ putStrLn "UNIT"
+--     liftIO $ forM_ [minBound..maxBound] $ \r -> do
+--       printUnit $ u & unitMembers .~ members u ((0, 0), r)
+--       liftIO $ putStrLn "==="
 stringOfCommands :: [Command] -> String
 stringOfCommands = fmap (head . tail . (\case
                                             MoveW -> "p'!.03"
@@ -82,14 +77,15 @@ main = do
   options <- execParser $ info (helper <*> options)
              (fullDesc
               <> progDesc "ICFP 2015 !"
-              <> header "Rafaël Bocquet & ???" )
-  sol <- runVis (options ^. optVis) $ do
+              <> header "Team <$><*>" )
+  sol <- -- runVis (options ^. optVis) $
+    do
     forM (options ^. optInput) $ \inputfile -> do
-      input     <- liftIO $ BL.readFile inputfile
-      visLine ("Input file : " ++ inputfile)
+      input <- liftIO $ BL.readFile inputfile
+      -- visLine ("Input file : " ++ inputfile)
       case decode input :: Maybe Problem of
         Nothing -> do
-          visLine "Bad input"
+          -- visLine "Bad input"
           fail "Bad input"
         Just pb -> do
           -- printProblem pb
@@ -109,7 +105,7 @@ main = do
             let tree = stateTree initState
             c <- liftIO $ pickOne (pb^.problemSourceLength) tree <&> (^. stateCommands)
             pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands c)
-  print (encode (toJSON sol))
+  BL.putStrLn (encode (toJSON sol))
   -- rsp <- postWith
   --        (defaults
   --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
