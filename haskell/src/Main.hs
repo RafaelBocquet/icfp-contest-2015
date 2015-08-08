@@ -48,6 +48,7 @@ options = Options
             <> short 'v'
             <> help "Visualisation folder" )
 
+
 printProblem :: Problem -> Vis ()
 printProblem pb = do
   let w = pb ^. problemWidth
@@ -62,20 +63,9 @@ printProblem pb = do
   forM_ (pb ^. problemUnits) $ \u -> do
     visLine (show $ computeUnitData w h u)
     liftIO $ putStrLn "UNIT"
-    let as = (u^.unitPivot):(u^.unitMembers)
-    liftIO $ setSGR [SetColor Background Dull Green]
-    liftIO $ forM_ [minimum (snd <$> as) .. maximum (snd <$> as)] $ \i -> do
-      when (i `mod` 2 /= minimum (snd <$> as) `mod` 2) (putChar ' ')
-      forM_ [minimum (fst <$> as) .. maximum (fst <$> as)] $ \j -> do
-        when ((j, i) == u^.unitPivot) $ setSGR [SetColor Foreground Vivid Red]
-        case ((j, i) == u^.unitPivot, (j, i) `elem` u^.unitMembers) of
-          (False, False) -> putStr " "
-          (True, False)  -> putStr "O"
-          (_,    True)   -> putStr "X"
-        setSGR [Reset]
-        putChar ' '
-      putChar '\n'
-
+    liftIO $ forM_ [minBound..maxBound] $ \r -> do
+      printUnit $ u & unitMembers .~ members u ((0, 0), r)
+      liftIO $ putStrLn "==="
 stringOfCommands :: [Command] -> String
 stringOfCommands = fmap (head . (\case
                                      MoveW -> "p'!.03"
@@ -112,7 +102,7 @@ main = do
                    (\i -> V.generate (pb^.problemWidth)
                           (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
                  )
-            pure $ Solution (pb ^. problemId) seed "TAGJ" (stringOfCommands $ concat c)
+            pure $ Solution (pb ^. problemId) seed "ULM2" (stringOfCommands $ concat c)
   print (encode (toJSON sol))
   rsp <- postWith
          (defaults

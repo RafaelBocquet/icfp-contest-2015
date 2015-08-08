@@ -98,3 +98,18 @@ printMap v w h = do
       setSGR [Reset]
       putChar ' '
     putChar '\n'
+
+printUnit :: Unit -> IO ()
+printUnit u = do
+  let as = (u^.unitPivot):(u^.unitMembers)
+  forM_ [minimum (snd <$> as) .. maximum (snd <$> as)] $ \i -> do
+    when (i `mod` 2 /= 0) (putChar ' ')
+    forM_ [minimum (fst <$> as) .. maximum (fst <$> as)] $ \j -> do
+      when ((j, i) == u^.unitPivot) $ setSGR [SetColor Foreground Vivid Red]
+      case ((j, i) == u^.unitPivot, (j, i) `elem` u^.unitMembers) of
+        (False, False) -> putStr " "
+        (True, False)  -> putStr "O"
+        (_,    True)   -> putStr "X"
+      setSGR [Reset]
+      putChar ' '
+    putChar '\n'

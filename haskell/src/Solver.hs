@@ -46,7 +46,7 @@ fromBaseESE (x, y) = (x + y `div` 2, y)
 rotESE :: Rotation -> (Int, Int) -> (Int, Int)
 rotESE RE (x, y) = (x, y)
 rotESE RSE (x, y) = (-y, x+y)
-rotESE RSW (x, y) = (-x-y, -x)
+rotESE RSW (x, y) = (-x-y, x)
 rotESE RW (x, y) = (-x, -y)
 rotESE RNW (x, y) = (y, -x-y)
 rotESE RNE (x, y) = (x+y, -x)
@@ -58,17 +58,24 @@ instance Num (Int, Int) where
 
 type Position = ((Int, Int), Rotation)
 
+encodeInt i | i >= 0 = 2*i
+            | i < 0 = 2*(-i)+1
+decodeInt i | i `mod` 2 == 0 = i `div` 2
+            | otherwise  = - i`div`2
+
 encodePosition :: Int -> Int -> Position -> Int
-encodePosition w h ((x, y), r) = fromEnum r+6*(y+h*x)
+encodePosition w h ((x, y), r) = fromEnum r+6*(encodeInt y+2*h*encodeInt x)
 
 decodePosition :: Int -> Int -> Int -> Position
 decodePosition w h i = let (xy, r) = i `divMod` 6
-                           (x, y) = xy `divMod` h
-                       in ((x, y), toEnum r)
+                           (x, y) = xy `divMod` (2*h)
+                       in ((decodeInt x, decodeInt y), toEnum r)
+
 
 members :: Unit -> Position -> [(Int, Int)]
 members u (p, r) = let pivotESE = u^.unitPivot.to toBaseESE
-                   in u^.unitMembers&fmap (toBaseESE >>> subtract pivotESE >>> rotESE r >>> (+ pivotESE) >>> fromBaseESE >>> (+ p))
+                   in u^.unitMembers&fmap (toBaseESE >>> subtract pivotESE >>> rotESE r >>> (+ pivotESE) >>> (+ toBaseESE p) >>> fromBaseESE)
+
 
 computeUnitData :: Int -> Int -> Unit -> (Position, Gr (Maybe Command) Command)
 computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] [])))
@@ -90,12 +97,19 @@ computeUnitData w h u = (init, snd (execState (go init) (mempty, mkGraph [] []))
         _2 %= insNode (e, v)
         let psw = if y`mod`2 == 0 then (x-1, y+1) else (x, y+1)
         let pse = if y`mod`2 == 0 then (x, y+1) else (x+1, y+1)
-        asw <- go (psw, r)
-        ase <- go (pse, r)
-        let v = (do guard (not asw); Just MoveSW) <|>
-                (do guard (not ase); Just MoveSE)
-        when asw (_2 %= insEdge (e, encodePosition w h (psw, r), MoveSW))
-        when ase (_2 %= insEdge (e, encodePosition w h (pse, r), MoveSE))
+        let np = [ ((psw, r), MoveSW)
+                 , ((pse, r), MoveSE)
+                 , (((x+1, y), r), MoveE)
+                 , (((x-1, y), r), MoveW)
+                 -- , ((p, rotateCW r), RotateCW)
+                 -- , ((p, rotateCCW r), RotateCCW)
+                 ]
+        np' <- forM np $ \(b, a) -> do
+          c <- go b
+          when c (_2 %= insEdge (e, encodePosition w h b, a))
+          pure (c, a)
+        let v = foldr1 (<|>) (np' <&> \(b, a) -> do guard b; Just a)
+        pure ()
       pure v
 
 data SolverState = SolverState
@@ -129,24 +143,29 @@ ldffWith a b c = fst (ldfWith a b c)
 treePaths b (Node (i, (Nothing, l)) f) = (i, MoveSW:l++b) : concat (treePaths (l++b) <$> f)
 treePaths b (Node (i, (Just a, l)) f) = (i, a:l++b) : concat (treePaths (l++b) <$> f)
 
+clearFulls :: Vector (Vector Bool) -> Vector (Vector Bool)
+clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
+               in V.replicate (V.length v - V.length v') (V.replicate (V.length (V.head v)) False) <> v'
+
 solveOne :: Solver [Command]
 solveOne = do
   n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral) $ stateRandom <%= (`mod` (2^32)) . (+ 12345) . (* 1103515245)
   un <- use stateUnits
   v <- use stateGrid
   let (u, (init, ugr)) = un V.! (n `mod` V.length un)
-  let okpos = all (\(i, j) -> not $ v V.! j V.! i) . members u
+  let okpos p = all (\(i, j) -> not $ v V.! j V.! i) $ members u p
   r <- stateRunning <%= (&& okpos init)
+  w <- use stateWidth
+  h <- use stateHeight
   if r then do
-    liftIO $ print init
-    w <- use stateWidth
-    h <- use stateHeight
     liftIO $ printMap (\i j -> v V.! j V.! i) w h
     liftIO $ putStrLn ""
     liftIO $ printMap (\i j -> (i, j) `elem` members u init) w h
     liftIO $ putStrLn ""
-    let rgr = ugr
+    liftIO $ print init
+    let ugr' = ugr
               & nfilter (okpos . decodePosition w h)
+    let rgr = ugr'
               & ldffWith (fmap (second (:[])) . lsuc') [(encodePosition w h init, [])]
               & concat . fmap (treePaths [])
               & sortBy (compare `on` (length.snd))
@@ -156,9 +175,12 @@ solveOne = do
       pure []
       else do
       let (decodePosition w h -> ((x, y), r), c) = head rgr
-          dt = members u ((x, y), r) & sort & fmap (\(x, y) -> (y, x)) & groupBy ((==) `on` fst) & fmap (\xs@((x,_):_) -> (x, snd <$> xs))
+          dt = members u ((x, y), r) & fmap (\(x, y) -> (y, x)) & sort & groupBy ((==) `on` fst) & fmap (\xs@((x,_):_) -> (x, snd <$> xs))
       liftIO $ print dt
       liftIO $ print (reverse c)
       stateGrid %= (V.// (dt <&> \(x, y) -> (x, v V.! x V.// zip y (repeat True))))
+      stateGrid %= clearFulls
       pure (reverse c)
-    else pure []
+    else do
+    traceShowM r
+    pure []
