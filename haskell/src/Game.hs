@@ -43,6 +43,7 @@ data Unit = Unit
 data Command = MoveW | MoveE | MoveSW | MoveSE | RotateCW | RotateCCW
              deriving (Show, Generic)
 instance Hashable Command
+instance NFData Command
 
 data Solution = Solution
                 { _solutionProblemId :: Integer

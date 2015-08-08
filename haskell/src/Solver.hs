@@ -13,7 +13,7 @@ import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as VM
+import qualified Data.Vector.Unboxed as VU
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
@@ -136,7 +136,7 @@ data SolverState = SolverState
                    , _stateWidth    :: Int
                    , _stateHeight   :: Int
                    , _stateUnits    :: Vector (Unit, (Position, Gr (Maybe Command) Command, IntMap [(Int, Int)]))
-                   , _stateGrid     :: Vector (Vector Bool)
+                   , _stateGrid     :: Vector (VU.Vector Bool)
                    , _stateCommands :: [Command]
                    , _stateLines    :: Int
                    , _stateScore    :: Int
@@ -162,14 +162,14 @@ ldffWith a b c = fst (ldfWith a b c)
 -- TODO : need to associate "impossible / stop" moves to nodes
 -- TODO impossible move -> more choice to create phrases of power
 
-clearFulls :: Vector (Vector Bool) -> (Int, Vector (Vector Bool))
-clearFulls v = let v' = V.filter (not . getAll . foldMap All) v
+clearFulls :: Vector (VU.Vector Bool) -> (Int, Vector (VU.Vector Bool))
+clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
                    cleared = V.length v - V.length v'
-               in (cleared, V.replicate cleared (V.replicate (V.length (V.head v)) False) <> v')
+               in (cleared, V.replicate cleared (VU.replicate (VU.length (V.head v)) False) <> v')
 
 branching, depth :: Int
 branching = 2
-depth = 3
+depth = 2
 
 plop n = n*(n+1)`div`2
 
@@ -180,12 +180,13 @@ solveOne s = do
       (u, (init, ugr, umems)) = (s^.stateUnits) V.! (n `mod` V.length (s^.stateUnits))
       w = s^.stateWidth
       h = s^.stateHeight
-      okpos p = all (\(i, j) -> not $ v V.! j V.! i) $ fromJust (lookup (encodePosition w h p) umems)
+      okpos p = all (\(i, j) -> not $ v V.! j VU.! i) $ fromJust (lookup (encodePosition w h p) umems)
       r = s^.stateRunning && okpos init
       s' = s & stateRunning .~ r & stateRandom %~ (`mod` (2^32)) . (+ 12345) . (* 1103515245)
   if r
     then do
-    let endFrom i = filter (not . okpos . decodePosition w h . fst) (lsuc' (context ugr i))^?_head<&>snd
+    let endFrom i = case filter (not . okpos . decodePosition w h . fst) (lsuc' (context ugr i)) of
+          [] -> Nothing; (_,a):_ -> Just a
         treePaths :: DList Command -> Tree (Node, (Maybe Command, DList Command)) -> DList (Node, DList Command)
         treePaths b (Node (i, (a, l)) f) = maybe id (\x -> ((i, x`DL.cons`l<>b) `DL.cons`)) (a <|> endFrom i) (mconcat (treePaths (l<>b) <$> f))
         r1 = ugr & nfilter (okpos . decodePosition w h)
@@ -196,12 +197,12 @@ solveOne s = do
                                   <&> (\(x, y) -> (y, x))
                                   & sort & groupBy ((==) `on` fst)
                                   <&> (\xs@((x,_):_) -> (x, snd <$> xs))
-                             v' = v V.// (dt <&> \(x, y) -> (x, v V.! x V.// zip y (repeat True)))
+                             v' = v V.// (dt <&> \(x, y) -> (x, v V.! x VU.// zip y (repeat True)))
                              (ls, v'') = clearFulls v'
                              points  = length (u^.unitMembers) + 50*(ls+1)*ls
                              lsln    = s^.stateLines
                              tpoints = points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
-                             toname  = V.sum (plop . V.foldr (bool id (+1)) 0 <$> v'')
+                             toname  = V.sum (plop . VU.foldr (bool id (+1)) 0 <$> v'')
                          (ls, reverse c, v'', tpoints, toname)
                     )
         us (ls, c, v', pts, tn) = s'
@@ -210,7 +211,7 @@ solveOne s = do
                                   & stateGrid .~ v'
                                   & stateLines .~ ls
                                   & stateScore +~ pts
-    r4 & sortBy (compare `on` (\(_,cmd,_,pts,tn) -> (-pts, -tn, -length cmd))) & take branching & fmap us
+    (r1 `deepseq`) $ (r2 `deepseq`) $ r4 & sortBy (compare `on` (\(_,cmd,_,pts,tn) -> (-pts, -tn, -length cmd))) & take branching & fmap us
     else [s']
 
 stateTree :: SolverState -> (Tree SolverState)
@@ -224,12 +225,12 @@ rankState s =
 
 pickOne :: Int -> Tree SolverState -> IO SolverState
 pickOne 0 (Node a _)  = do
-  -- liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
-  -- print (a ^. stateScore)
+  liftIO $ printMap (\i j -> (a^.stateGrid) V.! j VU.! i) (a^.stateWidth) (a^.stateHeight)
+  print (a ^. stateScore)
   pure a
 pickOne i (Node a as) = do
-  -- liftIO $ printMap (\i j -> (a^.stateGrid) V.! j V.! i) (a^.stateWidth) (a^.stateHeight)
-  -- liftIO $ print (a ^. stateScore)
-  -- liftIO $ putStrLn ""
+  liftIO $ printMap (\i j -> (a^.stateGrid) V.! j VU.! i) (a^.stateWidth) (a^.stateHeight)
+  liftIO $ print (a ^. stateScore)
+  liftIO $ putStrLn ""
   -- pickOne (i-1) $ as & head
   pickOne (i-1) $ as & maximumBy (compare `on` (maximum . fmap rankState . (!! depth) . levels))
