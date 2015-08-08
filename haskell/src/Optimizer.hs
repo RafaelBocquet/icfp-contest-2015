@@ -57,15 +57,16 @@ makeTrie a = evalState (go False (sort a)) 0
           Trie (b, i) <$> (forM (groupBy ((==) `on` head) xs) (\(xs@((z:_):_)) -> (z,) <$> go False (tail <$> xs)))
 
 data ACStateData a = ACStateData
-                     { _acSuffix   :: Int
-                     , _acChildren :: Map a Int
-                     , _acMatches  :: [Int]
+                     { _acSuffix     :: Int
+                     , _acChildren   :: Map a Int
+                     , _acMatches    :: Int
+                     , _acMatchesHow :: Map [a] Int
                      }
 makeLenses ''ACStateData
-type AC a = (IntMap (ACStateData a), IntSet)
+type AC a = (Int, IntMap (ACStateData a), IntSet)
 
 makeAC :: Ord a => Trie (Bool, Int) a -> AC a
-makeAC a = let (b, c, d) = execState (go b c [] a) (mempty, mempty, mempty) in (c, d)
+makeAC a = let (b, c, d) = execState (go b c [] a) (mempty, mempty, mempty) in (fromJust (IntMap.maxViewWithKey c)^._1._1, c, d)
   where go :: Ord a => Map [a] Int -> IntMap (ACStateData a) ->
               [a] -> Trie (Bool, Int) a -> State (Map [a] Int, IntMap (ACStateData a), IntSet) ()
         go mp mp2 a (Trie (b, i) ts) = do
@@ -75,12 +76,13 @@ makeAC a = let (b, c, d) = execState (go b c [] a) (mempty, mempty, mempty) in (
           _2.at i .= Just (ACStateData
                            suf
                            (ts <&> second (snd . _trieLabel) & Map.fromList)
-                           ((if b then (i :) else id) (if null a then [] else fromJust (lookup suf mp2) ^. acMatches))
+                           ((if b then (length a +) else id) (if null a then 0 else fromJust (lookup suf mp2) ^. acMatches))
+                           ((if b then (Map.insert a 1) else id) (if null a then Map.empty else fromJust (lookup suf mp2) ^. acMatchesHow))
                           )
           forM_ ts $ \(x, y) -> go mp mp2 (a++[x]) y
 
 acNext :: Ord a => AC a -> Int -> a -> Int
-acNext ac@(m, s) st x = do
+acNext ac@(_, m, s) st x = do
   let Just v = lookup st m
   case lookup x (v^.acChildren) of
     Just i -> i
@@ -90,31 +92,34 @@ runAC :: Ord a => AC a -> Int -> [a] -> [Int]
 runAC ac x []     = [x]
 runAC ac x (a:as) = x : runAC ac (acNext ac x a) as
 
-thisMatches :: Ord a => AC a -> Int -> [Int]
-thisMatches (m, _) x = fromJust (lookup x m) ^. acMatches
+thisMatches :: Ord a => AC a -> Int -> Int
+thisMatches (_, m, _) x = fromJust (lookup x m) ^. acMatches
+
+thisMatchesHow :: Ord a => AC a -> Int -> Map [a] Int
+thisMatchesHow (_, m, _) x = fromJust (lookup x m) ^. acMatchesHow
 
 --
 
 
 -- Map from AC State to max score
-data OEntry a = OEntry { _oScore :: Int, _oList :: DList a }
-            deriving (Show)
+data OEntry a = OEntry { _oScore :: Int, _oWhich :: Map [a] Int, _oList :: DList a }
+              deriving (Show)
 
 maxEntry :: OEntry a -> OEntry a -> OEntry a
-maxEntry (OEntry a x) (OEntry b y) = if a >= b then OEntry a x else OEntry b y
+maxEntry (OEntry a w x) (OEntry b z y) = if a >= b then OEntry a w x else OEntry b z y
 
-appEntry :: OEntry a -> OEntry a -> OEntry a
-appEntry (OEntry a x) (OEntry b y) = OEntry (a+b) (x<>y)
+appEntry :: Ord a => OEntry a -> OEntry a -> OEntry a
+appEntry (OEntry a w x) (OEntry b z y) = OEntry (a+b) (Map.unionWith (+) w z) (x<>y)
 
 type OState a = IntMap (OEntry a)
 
-oacNext :: Ord a => AC a -> Output a -> Int -> OState a
-oacNext ac OEmpty      x = IntMap.singleton x (OEntry 0 DL.empty)
-oacNext ac (OSingle a) x = let y = acNext ac x a
-                           in IntMap.singleton y (OEntry (length (thisMatches ac y)) (DL.cons a DL.empty))
-oacNext ac (OAppend a b) x = IntMap.toList (oacNext ac a x)
-                             <&> (\(y, o) -> oacNext ac b y <&> appEntry o)
-                             & IntMap.unionsWith maxEntry
+oacNext :: (Show a, Ord a) => AC a -> Output a -> OState a -> OState a
+oacNext ac OEmpty      x = x
+oacNext ac (OSingle a) x = x & IntMap.toList
+                           <&> (\(y, o) -> let z = acNext ac y a
+                                           in (z, o & flip appEntry (OEntry (thisMatches ac y) (thisMatchesHow ac y) (DL.cons a DL.empty))))
+                           & IntMap.fromListWith maxEntry
+oacNext ac (OAppend a b) x = oacNext ac b (oacNext ac a x)
 oacNext ac (OAlt a b) x = IntMap.unionWith maxEntry (oacNext ac a x) (oacNext ac b x)
 
 oacFromList :: [a] -> Output a
@@ -133,9 +138,9 @@ outputString = (=<<) $ foldr1 OAlt . fmap OSingle
                       RotateCCW -> "kstuwx"
                  )
 
-optimize :: Output Command -> String
-optimize o = let x = oacNext (makeAC (makeTrie powerPhrases)) (outputString o) 0
-             in x & IntMap.toList <&> snd & maximumBy (compare `on` _oScore) & _oList & DL.toList
+optimize :: Output Command -> OEntry Char
+optimize o = let x = oacNext (makeAC (makeTrie powerPhrases)) (outputString o) (IntMap.singleton 0 (OEntry 0 Map.empty DL.empty))
+             in x & IntMap.toList <&> snd & maximumBy (compare `on` _oScore)
 
 powerPhrases :: [[Char]]
 powerPhrases = [ "ei!"

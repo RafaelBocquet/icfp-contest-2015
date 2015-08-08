@@ -217,8 +217,8 @@ solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
 
 -- TODO : make these depend on the problem size - constraints
 branching, depth :: Int
-branching = 2
-depth     = 3
+branching = 3
+depth     = 4
 
 pickOne :: String -> Int -> Int -> Int -> Tree SolveStep -> IO SolveStep
 pickOne s w h 0 (Node a _)  = do

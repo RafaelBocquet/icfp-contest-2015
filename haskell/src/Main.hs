@@ -15,6 +15,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
+import qualified Data.DList as DL
 
 import Network.Wreq hiding (options, header, Options)
 import System.Environment
@@ -106,8 +107,10 @@ main = do
             let initialStep = SolveStep seed True initialMap 0 0 mempty 0
             let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
             s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
-            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands $ toList $ s^.stepCommands)
-  print (encode (toJSON sol))
+            let cmds = toList $ s^.stepCommands
+            let opt = optimize $ oacFromList $ cmds
+            liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
+            pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList)
   when (options ^. optSend) $ do
     rsp <- postWith
            (defaults
