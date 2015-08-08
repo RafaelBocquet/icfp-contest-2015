@@ -110,10 +110,10 @@ main = do
             c <- liftIO $ pickOne (pb^.problemSourceLength) tree <&> (^. stateCommands)
             pure $ Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (stringOfCommands c)
   print (encode (toJSON sol))
-  rsp <- postWith
-         (defaults
-          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-         "https://davar.icfpcontest.org/teams/99/solutions"
-         (toJSON $ concat sol)
-  putStrLn $ "Answer : " ++ show rsp
+  -- rsp <- postWith
+  --        (defaults
+  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+  --        "https://davar.icfpcontest.org/teams/99/solutions"
+  --        (toJSON $ concat sol)
+  -- putStrLn $ "Answer : " ++ show rsp
   pure ()

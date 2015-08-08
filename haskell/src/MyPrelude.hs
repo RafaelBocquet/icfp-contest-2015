@@ -44,6 +44,7 @@ module MyPrelude
        , module System.IO
        , module Data.Hashable
        , module Data.Ratio
+       , module Data.DList
 
        , on
 
@@ -86,6 +87,7 @@ import Data.Tree
 import Data.Function (on)
 import Data.Hashable
 import Data.Ratio
+import Data.DList hiding (head, tail, empty, concat, unfoldr, replicate, apply, cons, snoc, foldr, toList, map)
 
 import Data.Key
 

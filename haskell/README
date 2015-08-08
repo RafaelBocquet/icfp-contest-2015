@@ -1,0 +1,4 @@
+Dependencies : 
+ * ghc 7.10.2
+ * Lots of cabal packages
+TODO: Delegate writing README to someone else
