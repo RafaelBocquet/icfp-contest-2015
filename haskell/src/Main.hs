@@ -55,23 +55,20 @@ options = Options
             <> short 'v'
             <> help "Visualisation folder" )
 
--- printProblem :: Problem -> Vis ()
--- printProblem pb = do
---   let w = pb ^. problemWidth
---       h = pb ^. problemHeight
---       f = pb ^. problemFilled & Set.fromList
---   visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
---   visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
---   visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
---   visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
---   liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
---   liftIO $ printMap (curry $ Set.member ?? f) w h
---   forM_ (pb ^. problemUnits) $ \u -> do
---     visLine (show $ computeUnitData w h u)
---     liftIO $ putStrLn "UNIT"
---     liftIO $ forM_ [minBound..maxBound] $ \r -> do
---       printUnit $ u & unitMembers .~ members u ((0, 0), r)
---       liftIO $ putStrLn "==="
+printProblem :: Problem -> Vis ()
+printProblem pb = do
+  let w = pb ^. problemWidth
+      h = pb ^. problemHeight
+      f = pb ^. problemFilled & Set.fromList
+  visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
+  visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
+  visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
+  visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
+  liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
+  liftIO $ printMap (curry $ Set.member ?? f) w h
+  forM_ (pb ^. problemUnits) $ \u -> do
+    liftIO $ putStrLn "UNIT"
+    liftIO $ printUnit $ u
 
 main :: IO ()
 main = do
@@ -102,6 +99,7 @@ main = do
                           s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
                           let opt = optimize $ s^.stepCommands
                           let sc = s^.stepScore + 2 * _oScore opt + 300 * Map.size (_oWhich opt)
+                          liftIO $ putStrLn $ "output size " ++ show (outputSize (s^.stepCommands))
                           liftIO $ print (opt&_oWhich)
                           liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
                           pure $ (sc, Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList))

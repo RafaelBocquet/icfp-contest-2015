@@ -26,7 +26,10 @@ data Output a = OEmpty
               | OSingle a
               | OAppend (Output a) (Output a)
               | OAlt (Output a) (Output a)
-              deriving (Show, Eq, Ord, Functor)
+              deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+
+outputSize :: Output a -> Integer
+outputSize = getSum . foldMap (const (Sum 1))
 
 instance Applicative Output where pure = return; (<*>) = ap
 instance Monad Output where

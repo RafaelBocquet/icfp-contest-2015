@@ -110,7 +110,7 @@ computeUnitData w h u = udata
         normRot = toEnum . (`mod` (6`div`(if r2 then 3 else 1)`div`(if r3 then 2 else 1))) . fromEnum
         initl = minimum . fmap fst $ u^.unitMembers
         initr = maximum . fmap fst $ u^.unitMembers
-        init = (V2 ((w-3*initl-initr-1)`div`2) 0, RE)
+        init = (V2 ((w-initl-initr-1)`div`2) 0, RE)
 
         valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h))) . members
 
@@ -195,6 +195,7 @@ singleStep s
       let n = (.&. 0x7FFF) . flip shiftR 16 . fromIntegral $ s^.stepRandom
           nr = (.&. 0xFFFFFFFF) . (+ 12345) . (* 1103515245) $ s^.stepRandom
           v = s ^. stepFillMap
+      traceShowM n
       (w, h, us) <- ask
       let u = us V.! (n `mod` V.length us)
       if validEntry v (u^.unitInitial)
@@ -218,8 +219,8 @@ solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
 
 -- TODO : make these depend on the problem size - constraints
 branching, depth :: Int
-branching = 3
-depth     = 4
+branching = 5
+depth     = 5
 
 pickOne :: String -> Int -> Int -> Int -> Tree SolveStep -> IO SolveStep
 pickOne s w h 0 (Node a _)  = do
@@ -232,6 +233,7 @@ pickOne s w h i (Node a as) = do
     putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
     hFlush stdout
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+  -- liftIO $ print (a ^. stepCommands)
   -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore))
   -- liftIO $ putStrLn ""
   pickOne s w h (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))
