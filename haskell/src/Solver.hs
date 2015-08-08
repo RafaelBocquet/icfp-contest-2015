@@ -24,6 +24,7 @@ import Data.Tuple
 import Linear
 
 import Game
+import Optimizer
 
 data Rotation = RE | RSE | RSW | RW | RNW | RNE
               deriving (Eq, Ord, Enum, Bounded, Show, Generic)
@@ -138,7 +139,7 @@ validEntry :: FillMap -> GraphEntry -> Bool
 validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
 
 -- TODO : find a way to make this incremental
-findReachable_ :: FillMap -> DList Command -> GraphEntry -> State IntSet (DList ((Int, FillMap), DList Command))
+findReachable_ :: FillMap -> Output Command -> GraphEntry -> State IntSet (DList ((Int, FillMap), Output Command))
 findReachable_ v cs ge = do
   contains (ge ^. gePosition.to hash) .= True
   b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
@@ -147,12 +148,12 @@ findReachable_ v cs ge = do
                when (IntSet.member (hash $ e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
                when (not $ validEntry v e) (Left False)
                pure e
-    forM d $ findReachable_ v (DL.snoc cs c)
+    forM d $ findReachable_ v (OAppend cs (OSingle c))
   let c = (,) <$> commandTransitions <*> b & toList & filter ((== Left False).snd) & fmap fst
-  pure $ maybe id (DL.cons . (clearFulls (ge^.geUpdate $ v),) . DL.snoc cs) (c^?_head) $ foldMap fold b
+  pure $ maybe id (DL.cons . (clearFulls (ge^.geUpdate $ v),) . OAppend cs . OSingle) (c^?_head) $ foldMap fold b
 
-findReachable :: FillMap -> UnitData -> DList ((Int, FillMap), DList Command)
-findReachable v u = evalState (findReachable_ v DL.empty (u^.unitInitial)) IntSet.empty
+findReachable :: FillMap -> UnitData -> DList ((Int, FillMap), Output Command)
+findReachable v u = evalState (findReachable_ v OEmpty (u^.unitInitial)) IntSet.empty
 
 clearFulls :: FillMap -> (Int, FillMap)
 clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
@@ -165,7 +166,7 @@ data SolveStep = SolveStep
                  , _stepFillMap   :: FillMap
                  , _stepScore     :: Int
                  , _stepLastLines :: Int
-                 , _stepCommands  :: DList Command
+                 , _stepCommands  :: Output Command
 
                  , _stepFillScore :: Ratio Integer
                    -- ^ Fill Score : it is better to fill nonempty lines
@@ -206,7 +207,7 @@ singleStep s
                                           in points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
                                          )
                                          l
-                                         (s^.stepCommands <> cs)
+                                         ((s^.stepCommands) `OAppend` cs)
                                          (getFillScore w h v')
         pure $ take branching (sortBy (flip compare `on` rankStep w h) ss)
         else pure [s & stepRunning .~ False]
@@ -228,7 +229,7 @@ pickOne s w h 0 (Node a _)  = do
 pickOne s w h i (Node a as) = do
   liftIO $ do
     putChar '\r'
-    putStr $ s ++ show i ++ "    "
+    putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
     hFlush stdout
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
   -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore))

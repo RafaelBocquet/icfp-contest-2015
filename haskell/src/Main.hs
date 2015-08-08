@@ -97,12 +97,12 @@ main = do
           (scs, sol) <- fmap unzip
                         $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
-                          let initialStep = SolveStep seed True initialMap 0 0 mempty 0
+                          let initialStep = SolveStep seed True initialMap 0 0 OEmpty 0
                           let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
                           s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
-                          let cmds = toList $ s^.stepCommands
-                          let opt = optimize $ oacFromList $ cmds
+                          let opt = optimize $ s^.stepCommands
                           let sc = s^.stepScore + 2 * _oScore opt + 300 * Map.size (_oWhich opt)
+                          liftIO $ print (opt&_oWhich)
                           liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
                           pure $ (sc, Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList))
           liftIO $ putStrLn $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))

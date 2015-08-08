@@ -150,3 +150,12 @@ powerPhrases = [ "ei!"
                , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
                , "blue hades"
                ]
+
+phraseToCommands ∷ String → [Command]
+phraseToCommands = fmap (\x -> fst . fromJust $ find (elem x . snd)
+                               [ (MoveW, "p'!.03" :: String)
+                               , (MoveE , "bcefy2")
+                               , (MoveSW , "aghij4")
+                               , (MoveSE , "lmno 5")
+                               , (RotateCW , "dqrvz1")
+                               , (RotateCCW , "kstuwx") ] )
