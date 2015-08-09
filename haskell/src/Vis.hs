@@ -19,7 +19,7 @@ import System.Directory
 import Lucid.Svg
 
 newtype Vis a = Vis { unVis :: ReaderT Handle IO a }
-              deriving (Functor, Applicative, Monad, MonadIO)
+              deriving (Functor, Applicative, Monad, MonadIO, MonadFix)
 
 visLine ∷ String → Vis ()
 visLine s = Vis $ ReaderT $ \h → do

@@ -137,18 +137,18 @@ oacCache v x = x & IntMap.toList
                & IntMap.unionsWith maxEntry
 
 oacMakeCache :: AC -> Output Char -> Vector (OState Char)
-oacMakeCache ac@(s,_,_) o = V.generate s $ \i -> oacNext ac o (IntMap.singleton i (OEntry 0 mempty mempty))
+oacMakeCache ac@(s,_,_) o = V.generate (s+1) $ \i -> oacNext ac o (IntMap.singleton i (OEntry 0 mempty mempty))
 
-type OCacheT m a = StateT (HashMap (Output Char) (Vector (OState Char))) m a
+-- type OCacheT = StateT (HashMap (Output Char) (Vector (OState Char)))
 
-oacCacheOutput :: (Monad m, MonadFix m) => AC -> Output Char -> OCacheT m (Vector (OState Char))
-oacCacheOutput ac o = mdo
-  a <- (at o <.= Just a)
-       >>= maybe (pure (oacMakeCache ac o)) pure
-  pure a
+-- oacCacheOutput :: (Monad m, MonadFix m) => AC -> Output Char -> OCacheT m (Vector (OState Char))
+-- oacCacheOutput ac o = mdo
+--   a <- (at o <.= Just a)
+--        >>= maybe (pure (oacMakeCache ac o)) pure
+--   pure a
 
-oacCacheNext :: (Monad m, MonadFix m) => AC -> Output Char -> OState Char -> OCacheT m (OState Char)
-oacCacheNext ac o x = oacCache <$> oacCacheOutput ac o <*> pure x
+-- oacCacheNext :: (Monad m, MonadFix m) => AC -> Output Char -> OState Char -> OCacheT m (OState Char)
+-- oacCacheNext ac o x = oacCache <$> oacCacheOutput ac o <*> pure x
 
 oacNext :: AC -> Output Char -> OState Char -> OState Char
 oacNext ac OEmpty      x = x
@@ -192,7 +192,7 @@ powerPhrases = [ "ei!"
                , "ia! ia!"
                , "r'lyeh"
                , "yuggoth"
-               , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
+               -- , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
                , "blue hades"
                , "tsathoggua"
                ]
@@ -205,3 +205,14 @@ phraseToCommands = fmap (\x -> fst . fromJust $ find (elem x . snd)
                                , (MoveSE , "lmno 5")
                                , (RotateCW , "dqrvz1")
                                , (RotateCCW , "kstuwx") ] )
+
+type OCommandCache = [Command] -> Vector (OState Char)
+
+oacCacheCommands :: AC -> [Command] -> Vector (OState Char)
+oacCacheCommands ac = let m = Map.fromList
+                              $ [MoveW, MoveE, MoveSW, MoveSE, RotateCW, RotateCCW]
+                              <&> (\a -> [Nothing, Just a])
+                              & sequence
+                              <&> catMaybes
+                              <&> \c -> (c, oacMakeCache ac (if null c then OEmpty else outputString (foldr1 OAlt (fmap OSingle c))))
+                      in \c -> fromJust (lookup c m)

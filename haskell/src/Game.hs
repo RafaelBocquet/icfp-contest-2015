@@ -16,7 +16,6 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 
-
 data Problem = Problem
                { _problemId :: Integer
                , _problemUnits :: [Unit]

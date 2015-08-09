@@ -35,6 +35,7 @@ executable ICFP
                      , wreq
                      , fgl
                      , hashable
+                     , template-haskell
                      , dlist
                      , linear
                      , unordered-containers

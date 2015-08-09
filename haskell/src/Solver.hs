@@ -216,9 +216,9 @@ simulate s v w h u cs = evalStateT
 -- _2 : bfs queue
 -- _3 : how to reach this position
 -- _4 : final result : how to reach this position and lock
-findReachable_ :: AC -> FillMap -> IntMap (OState Char) ->
+findReachable_ :: AC -> OCommandCache -> FillMap -> IntMap (OState Char) -> 
                   State (IntSet, Seq (GraphEntry, OState Char), IntMap (OState Char), [((Int, FillMap), OState Char)]) ()
-findReachable_ ac v mp = do
+findReachable_ ac cc v mp = do
   _2 %%= maybe (Nothing, Empty) (first Just) . uncons
     >>= \case
       Nothing -> pure ()
@@ -233,17 +233,17 @@ findReachable_ ac v mp = do
                        when (IntSet.member (e^.gePositionId) ex) (Left True) -- Left True : we fail if we do this
                        when (not $ validEntry v e) (Left False)
                        pure e
-            forM d $ \gd -> _2 %= (:> (gd, oacNext ac (outputString (OSingle c)) cs))
+            forM d $ \gd -> _2 %= (:> (gd, oacCache (cc [c]) cs))
           let c = (,) <$> commandTransitions <*> b
                   & toList & filter ((== Left False).snd) <&> fst
           when (not (null c)) $ do
             _4 %= ( (clearFulls (ge^.geUpdate $ v)
-                    , oacNext ac (outputString (foldr1 OAlt (fmap OSingle c))) cs) :)
-        findReachable_ ac v mp
+                    , oacCache (cc c) cs) :)
+        findReachable_ ac cc v mp
 
-findReachable :: AC -> FillMap -> OState Char -> UnitData -> [((Int, FillMap), OState Char)]
-findReachable ac v s u = let (_, _, mp, r) = execState (findReachable_ ac v mp) (mempty, Seq.singleton (u^.unitInitial, s), mempty, mempty)
-                         in r
+findReachable :: AC -> OCommandCache -> FillMap -> OState Char -> UnitData -> [((Int, FillMap), OState Char)]
+findReachable ac cc v s u = let (_, _, mp, r) = execState (findReachable_ ac cc v mp) (mempty, Seq.singleton (u^.unitInitial, s), mempty, mempty)
+                            in r
 
 clearFulls :: FillMap -> (Int, FillMap)
 clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
@@ -293,6 +293,7 @@ data SolveEnv = SolveEnv
                 , _sDepth :: Int
 
                 , _sAC :: AC
+                , _sCommandCache :: OCommandCache
                 }
 makeLenses ''SolveEnv
 
@@ -307,10 +308,11 @@ singleStep s
       us <- view sUnits
       branching <- view sBranching
       ac <- view sAC
+      cc <- view sCommandCache
       let u = us V.! (n `mod` V.length us)
       if validEntry v (u^.unitInitial)
         then do
-        let r = findReachable ac v (s^.stepOState) u
+        let r = findReachable ac cc v (s^.stepOState) u
             ss = r <&> \((l, v'), cs) -> SolveStep nr True v'
                                          (s^.stepScore +
                                           let points = (u^.unitSize) + 50*(1+l)*l
