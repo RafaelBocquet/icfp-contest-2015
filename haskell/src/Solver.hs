@@ -1,10 +1,10 @@
 module Solver where
 
 import Prelude ()
-import MyPrelude hiding (head, fromJust)
+import MyPrelude hiding (head, fromJust, foldr1)
 import Debug.Trace
 
-import Data.List.Located (head)
+import Data.List.Located (head, foldr1)
 import Data.Maybe.Located (fromJust)
 
 import qualified Data.Sequence as Seq
@@ -139,21 +139,42 @@ validEntry :: FillMap -> GraphEntry -> Bool
 validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
 
 -- TODO : find a way to make this incremental
-findReachable_ :: FillMap -> Output Command -> GraphEntry -> State IntSet (DList ((Int, FillMap), Output Command))
-findReachable_ v cs ge = do
-  contains (ge ^. gePosition.to hash) .= True
-  b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
-    ex <- get
-    let d = do e <- maybe (Left False) Right a -- Left False : can be used to stop the current unit
-               when (IntSet.member (hash $ e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
-               when (not $ validEntry v e) (Left False)
-               pure e
-    forM d $ findReachable_ v (OAppend cs (OSingle c))
-  let c = (,) <$> commandTransitions <*> b & toList & filter ((== Left False).snd) & fmap fst
-  pure $ maybe id (DL.cons . (clearFulls (ge^.geUpdate $ v),) . OAppend cs . OSingle) (c^?_head) $ foldMap fold b
+-- TODO : change this to a bfs -> ALT
 
-findReachable :: FillMap -> UnitData -> DList ((Int, FillMap), Output Command)
-findReachable v u = evalState (findReachable_ v OEmpty (u^.unitInitial)) IntSet.empty
+-- BFS traversal
+-- State :
+-- _1 : explored node
+-- _2 : bfs queue
+-- _3 : how to reach this position
+-- _4 : final result : how to reach this position and lock
+findReachable_ :: FillMap -> IntMap (Output Command) ->
+                  State (IntSet, Seq (GraphEntry, Output Command), IntMap (Output Command), IntMap ((Int, FillMap), Output Command)) ()
+                  -- (DList ((Int, FillMap), Output Command))
+findReachable_ v mp = do
+  _2 %%= maybe (Nothing, Empty) (first Just) . uncons
+    >>= \case
+      Nothing -> pure ()
+      Just (ge, o) -> do
+        let cs = fromJust (lookup (ge^.gePosition.to hash) mp)
+        uex <- _1.contains (ge^.gePosition.to hash) <<.= True
+        _3 %= IntMap.insertWith OAlt (ge^.gePosition.to hash) o
+        when (not uex) $ do
+          b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
+            ex <- use _1
+            let d = do e <- maybe (Left False) Right a -- Left False : can be used to stop the current unit
+                       when (IntSet.member (hash $ e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
+                       when (not $ validEntry v e) (Left False)
+                       pure e
+            forM d $ \gd -> _2 %= (:> (gd, OAppend cs (OSingle c)))
+          let c = (,) <$> commandTransitions <*> b
+                  & toList & filter ((== Left False).snd) <&> fst
+          when (not (null c)) $ do
+            _4.at (ge^.gePosition.to hash) .= Just (clearFulls (ge^.geUpdate $ v), OAppend cs OEmpty)
+        findReachable_ v mp
+
+findReachable :: FillMap -> UnitData -> [((Int, FillMap), Output Command)]
+findReachable v u = let (_, _, mp, r) = execState (findReachable_ v mp) (mempty, Seq.singleton (u^.unitInitial, OEmpty), mempty, mempty)
+                    in IntMap.elems r
 
 clearFulls :: FillMap -> (Int, FillMap)
 clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
@@ -188,19 +209,30 @@ rankStep w h s =
   + (s ^. stepFillScore)
   - if s ^. stepRunning then 0 else 400 -- Losing is bad (but this measure is also bad)
 
+data SolveEnv = SolveEnv
+                { _sWidth :: Int
+                , _sHeight :: Int
+                , _sUnits :: Vector UnitData
+                , _sBranching :: Int
+                , _sDepth :: Int
+                }
+makeLenses ''SolveEnv
 
-singleStep :: SolveStep -> Reader (Int, Int, Vector UnitData) [SolveStep]
+singleStep :: SolveStep -> Reader SolveEnv [SolveStep]
 singleStep s
   | s ^. stepRunning = do
       let n = (.&. 0x7FFF) . flip shiftR 16 . fromIntegral $ s^.stepRandom
           nr = (.&. 0xFFFFFFFF) . (+ 12345) . (* 1103515245) $ s^.stepRandom
           v = s ^. stepFillMap
       traceShowM n
-      (w, h, us) <- ask
+      w <- view sWidth
+      h <- view sHeight
+      us <- view sUnits
+      branching <- view sBranching
       let u = us V.! (n `mod` V.length us)
       if validEntry v (u^.unitInitial)
         then do
-        let r = DL.toList (findReachable v u)
+        let r = findReachable v u
             ss = r <&> \((l, v'), cs) -> SolveStep nr True v'
                                          (s^.stepScore +
                                           let points = (u^.unitSize) + 50*(1+l)*l
@@ -214,26 +246,23 @@ singleStep s
         else pure [s & stepRunning .~ False]
   | otherwise = pure [s]
 
-solveTree :: SolveStep -> Reader (Int, Int, Vector UnitData) (Tree SolveStep)
+solveTree :: SolveStep -> Reader SolveEnv (Tree SolveStep)
 solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
 
--- TODO : make these depend on the problem size - constraints
-branching, depth :: Int
-branching = 5
-depth     = 5
-
-pickOne :: String -> Int -> Int -> Int -> Tree SolveStep -> IO SolveStep
-pickOne s w h 0 (Node a _)  = do
+pickOne :: String -> Int -> Tree SolveStep -> ReaderT SolveEnv IO SolveStep
+pickOne s 90 (Node a _)  = do
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
   -- print (a ^. stepScore)
   pure a
-pickOne s w h i (Node a as) = do
+pickOne s i (Node a as) = do
   liftIO $ do
     putChar '\r'
     putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
     hFlush stdout
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  -- liftIO $ print (a ^. stepCommands)
   -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore))
   -- liftIO $ putStrLn ""
-  pickOne s w h (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))
+  w <- view sWidth
+  h <- view sHeight
+  depth <- view sDepth
+  pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))

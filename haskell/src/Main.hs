@@ -35,6 +35,8 @@ data Options = Options
                , _optPower  :: [String]
                , _optSend   :: Bool
                , _optVis    :: String
+               , _optBranching :: Int
+               , _optDepth     :: Int
                }
 makeLenses ''Options
 
@@ -54,6 +56,8 @@ options = Options
           ( long "vis"
             <> short 'v'
             <> help "Visualisation folder" )
+          <*> option auto ( long "branching" )
+          <*> option auto ( long "depth" )
 
 printProblem :: Problem -> Vis ()
 printProblem pb = do
@@ -95,8 +99,9 @@ main = do
                         $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
                           let initialStep = SolveStep seed True initialMap 0 0 OEmpty 0
-                          let tree = runReader (solveTree initialStep) (pb^.problemWidth, pb^.problemHeight, units')
-                          s <- liftIO $ pickOne (show seedi ++ " ") (pb^.problemWidth) (pb^.problemHeight) (pb^.problemSourceLength) tree
+                          let solveEnv = SolveEnv (pb^.problemWidth) (pb^.problemHeight) units' (options^.optBranching) (options^.optDepth)
+                          let tree = runReader (solveTree initialStep) solveEnv
+                          s <- liftIO $ runReaderT (pickOne (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
                           let opt = optimize $ s^.stepCommands
                           let sc = s^.stepScore + 2 * _oScore opt + 300 * Map.size (_oWhich opt)
                           liftIO $ putStrLn $ "output size " ++ show (outputSize (s^.stepCommands))
