@@ -22,7 +22,7 @@ import qualified Data.DList as DL
 import System.IO.Unsafe
 
 import Data.Tuple
-import Linear
+import Linear hiding (transpose)
 
 import Game
 import Optimizer
@@ -319,7 +319,12 @@ singleStep s
                                          l
                                          cs
                                          (getFillScore w h v')
-        pure $ take branching (sortBy (flip compare `on` rankStep w h) ss)
+        pure $ ss
+          & foldr (\a -> IntMap.insertWith (++) (a^.stepLastLines) [a]) IntMap.empty
+          & IntMap.toList & reverse
+          <&> sortBy (flip compare `on` rankStep w h) . snd
+          & transpose & concat
+          & take branching
         else pure [s & stepRunning .~ False]
   | otherwise = pure [s]
 
