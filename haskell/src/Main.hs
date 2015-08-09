@@ -117,9 +117,9 @@ main = do
                           let tree = runReader (solveTree initialStep) solveEnv
                           s <- liftIO $ runReaderT (pickOne (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
                           let opt = bestOState (s^.stepOState)
-                          let sc = s^.stepScore + 2 * _oScore opt + 300 * Map.size (_oWhich opt)
+                          let sc = s^.stepScore + stateScore opt
                           liftIO $ print (opt&_oWhich)
-                          liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
+                          liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (stateScore opt)
                           -- liftIO $ print $ phraseToCommands (_oList opt & DL.toList)
                           -- liftIO $ simulate seed initialMap (pb^.problemWidth) (pb^.problemHeight) units'
                           --   (phraseToCommands (_oList opt & DL.toList))

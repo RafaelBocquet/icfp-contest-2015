@@ -65,7 +65,7 @@ data ACStateData = ACStateData
                    { _acSuffix     :: Int
                    , _acChildren   :: Vector (Maybe Int)
                    , _acMatches    :: Int
-                   , _acMatchesHow :: Map [Char] Int
+                   , _acMatchesHow :: IntSet
                    }
 makeLenses ''ACStateData
 type AC = (Int, Vector ACStateData, IntSet)
@@ -82,10 +82,14 @@ makeAC a = let (b, c, d) = execState (go b c [] a) (mempty, mempty, mempty) in (
           let suf = (if null a then i else head (catMaybes (fmap (lookup ?? mp) (tail (suffixes a)))))
           _2.at i .= Just (ACStateData
                            suf
-                           (let a = ts <&> bimap fromEnum (Just . snd . _trieLabel)
-                            in V.replicate 256 Nothing V.// a)
+                           (let cs = ts <&> bimap fromEnum (Just . snd . _trieLabel)
+                            in V.zipWith (<|>)
+                               (V.replicate 256 Nothing V.// cs)
+                               (if null a
+                                then V.replicate 256 Nothing
+                                else fromJust (lookup suf mp2) ^. acChildren))
                            ((if b then (length a +) else id) (if null a then 0 else fromJust (lookup suf mp2) ^. acMatches))
-                           ((if b then (Map.insert a 1) else id) (if null a then Map.empty else fromJust (lookup suf mp2) ^. acMatchesHow))
+                           ((if b then IntSet.insert i else id) (if null a then IntSet.empty else fromJust (lookup suf mp2) ^. acMatchesHow))
                           )
           forM_ ts $ \(x, y) -> go mp mp2 (a++[x]) y
 
@@ -103,24 +107,27 @@ runAC ac x (a:as) = x : runAC ac (acNext ac x a) as
 thisMatches :: AC -> Int -> Int
 thisMatches (_, m, _) x = (m V.! x) ^. acMatches
 
-thisMatchesHow :: AC -> Int -> Map [Char] Int
+thisMatchesHow :: AC -> Int -> IntSet
 thisMatchesHow (_, m, _) x = (m V.! x) ^. acMatchesHow
 
 --
 
 
 -- Map from AC State to max score
-data OEntry a = OEntry { _oScore :: Int, _oWhich :: Map [a] Int, _oList :: DList a }
+data OEntry a = OEntry { _oScore :: Int, _oWhich :: IntSet, _oList :: DList a }
               deriving (Show)
 
+{-# INLINE maxEntry #-}
 maxEntry :: OEntry a -> OEntry a -> OEntry a
 maxEntry (OEntry a w x) (OEntry b z y) = if a >= b then OEntry a w x else OEntry b z y
 
+{-# INLINE maxOState #-}
 maxOState :: OState a -> OState a -> OState a
 maxOState = IntMap.unionWith maxEntry
 
+{-# INLINE appEntry #-}
 appEntry :: Ord a => OEntry a -> OEntry a -> OEntry a
-appEntry (OEntry a w x) (OEntry b z y) = OEntry (a+b) (Map.unionWith (+) w z) (x<>y)
+appEntry (OEntry a w x) (OEntry b z y) = OEntry (a+b) (IntSet.union w z) (x<>y)
 
 type OState a = IntMap (OEntry a)
 
@@ -153,13 +160,13 @@ optimize :: Output Command -> OEntry Char
 optimize o = bestOState (oacNext (makeAC (makeTrie powerPhrases)) (outputString o) initialOState)
 
 initialOState :: OState a
-initialOState = IntMap.singleton 0 (OEntry 0 Map.empty DL.empty)
+initialOState = IntMap.singleton 0 (OEntry 0 IntSet.empty DL.empty)
 
 bestOState :: OState a -> OEntry a
 bestOState x = x & IntMap.toList <&> snd & maximumBy (compare `on` _oScore)
 
 stateScore :: Integral b => OEntry a -> b
-stateScore opt = 2 * fromIntegral (_oScore opt) + 300 * fromIntegral (Map.size (_oWhich opt))
+stateScore opt = 2 * fromIntegral (_oScore opt) + 300 * fromIntegral (IntSet.size (_oWhich opt))
 
 powerPhrases :: [[Char]]
 powerPhrases = [ "ei!"
