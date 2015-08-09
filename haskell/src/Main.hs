@@ -109,7 +109,7 @@ main = do
                                    , (2,2), (2,3), (2,4)])
                                 & maybe (1, 1) id
                           print (branching, depth)
-                          let initialStep = SolveStep seed True initialMap 0 0 initialOState 0 0
+                          let initialStep = SolveStep seed (iterate ((+ 12345) . (* 1103515245)) 0) True initialMap 0 0 initialOState 0 0
                           let ac = makeAC (makeTrie powerPhrases)
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)

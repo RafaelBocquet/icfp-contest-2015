@@ -195,7 +195,6 @@ powerPhrases = [ "ei!"
                , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
                , "blue hades"
                , "tsathoggua"
-               , "john bigbootay!"
                ]
 
 phraseToCommands ∷ String → [Command]

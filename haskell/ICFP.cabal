@@ -10,6 +10,8 @@ executable ICFP
                      , BangPatterns, RecursiveDo
                      , DeriveGeneric, GeneralizedNewtypeDeriving, DeriveFunctor, DeriveFoldable, DeriveTraversable
   build-depends:       base >=4.8 && <4.9
+                     , parallel-io
+                     , random
                      , containers
                      , lens
                      , mtl
@@ -56,7 +58,6 @@ executable SubmitBest
                      , DeriveGeneric, GeneralizedNewtypeDeriving, DeriveFunctor, DeriveFoldable, DeriveTraversable
   build-depends:       base >=4.8 && <4.9
                      , containers
-                     , parallel-io
                      , lens
                      , mtl
                      , vector
