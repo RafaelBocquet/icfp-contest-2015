@@ -34,7 +34,6 @@ executable ICFP
                      , aeson
                      , wreq
                      , fgl
-                     , located-base
                      , hashable
                      , dlist
                      , linear

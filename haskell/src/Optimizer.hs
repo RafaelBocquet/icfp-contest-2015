@@ -1,11 +1,9 @@
 module Optimizer where
 
 import Prelude ()
-import MyPrelude hiding (head, fromJust, foldr1)
+import MyPrelude
 import Debug.Trace
 
-import Data.List.Located (head, foldr1)
-import Data.Maybe.Located (fromJust)
 
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map

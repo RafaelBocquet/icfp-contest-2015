@@ -1,11 +1,9 @@
 module Solver where
 
 import Prelude ()
-import MyPrelude hiding (head, fromJust, foldr1)
+import MyPrelude
 import Debug.Trace
 
-import Data.List.Located (head, foldr1)
-import Data.Maybe.Located (fromJust)
 
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
@@ -147,7 +145,6 @@ makeUpdate l =
 
 validEntry :: FillMap -> GraphEntry -> Bool
 validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
-
 
 data SimStep = SimStep
                { _simRandom    :: Int
