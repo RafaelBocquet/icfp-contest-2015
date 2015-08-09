@@ -269,15 +269,15 @@ getFillScore :: Int -> Int -> FillMap -> Ratio Integer
 getFillScore w h v = let w' = fromIntegral w :: Integer
                          h' = fromIntegral h :: Integer in
                      V.sum $ V.imap (\i v' -> let a = VU.foldl' (\x -> (+ x) . bool 0 1) 0 v'
-                                              in (40*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
-                                                 - 20 * (a * (fromIntegral $ let x = h - 1 - i
-                                                                             in if x > h`div`2 then x^(2 :: Integer) else 0)) % (h'*h')
+                                              in (60*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
+                                                 - 40 * (a * (fromIntegral $ let x = h - 1 - i
+                                                                             in x^(2 :: Integer))) % (h'*h')
                                     ) v
 
 getAcc :: Int -> Int -> FillMap -> Int
 getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
   where go i []     a = 0
-        go i (v:vs) a = let a' = VU.zipWith (&&) v a
+        go i (v:vs) a = let a' = VU.zipWith (&&) (VU.map not v) a
                         in VU.foldl' (\x -> (+ x) . bool 0 1) 0 a'
                            + go (i+1) vs (VU.generate w $ if i`mod`2 == (0 :: Integer)
                                                           then \i -> a' VU.! i || (if i+1<w then a' VU.! (i+1) else False)
@@ -286,18 +286,15 @@ getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
 
 rankStep :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep w h s =
-  fromIntegral (s ^. stepScore)
-  + (s ^. stepFillScore)
-  - 5 * (fromIntegral (s ^. stepAcc)) % 1
-  + (stateScore (bestOState (s^.stepOState))) % 2
-  - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
+  (fromIntegral (s ^. stepScore)
+   + (s ^. stepFillScore)
+   + fromIntegral (s ^. stepAcc) % 1
+   -- + (stateScore (bestOState (s^.stepOState))) % 2
+   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
+  )
 
 rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
-rankStep2 w h s =
-  fromIntegral (s ^. stepScore)
-  -- + (s ^. stepFillScore)
-  + (stateScore (bestOState (s^.stepOState))) % 1
-  - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
+rankStep2 w h s = fromIntegral (s ^. stepScore) + (stateScore (bestOState (s^.stepOState))) % 1
 
 data SolveEnv = SolveEnv
                 { _sWidth :: Int

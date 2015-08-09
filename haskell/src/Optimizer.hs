@@ -189,14 +189,13 @@ stateScore opt = 2 * fromIntegral (_oScore opt) + 300 * fromIntegral (IntSet.siz
 
 powerPhrases :: [[Char]]
 powerPhrases = [ "ei!"
-               , "buckaroo"
-               -- , "ia! ia!"
-               -- , "r'lyeh"
-               -- , "yuggoth"
-               -- , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
-               -- , "blue hades"
-               -- , "tsathoggua"
-               -- , "john bigbootay!"
+               , "ia! ia!"
+               , "r'lyeh"
+               , "yuggoth"
+               , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
+               , "blue hades"
+               , "tsathoggua"
+               , "john bigbootay!"
                ]
 
 phraseToCommands ∷ String → [Command]
