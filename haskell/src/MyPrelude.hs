@@ -48,7 +48,7 @@ module MyPrelude
 
        , on
 
-       , Seq, Map, Set, IntMap, IntSet, Vector, STVector, IOVector
+       , Seq, Map, Set, IntMap, IntSet, Vector, STVector, IOVector, HashMap, HashSet
 
        , pattern Empty
        , pattern (:>)
@@ -111,6 +111,8 @@ import Data.Sequence (Seq)
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.IntMap (IntMap)
+import Data.HashMap.Strict (HashMap)
+import Data.HashSet (HashSet)
 import Data.IntSet (IntSet)
 import Data.Vector (Vector)
 import Data.Vector.Mutable (STVector, IOVector)

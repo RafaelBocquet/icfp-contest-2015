@@ -74,6 +74,16 @@ printProblem pb = do
     liftIO $ putStrLn "UNIT"
     liftIO $ printUnit $ u
 
+stringOfCommands :: [Command] -> String
+stringOfCommands = fmap (head . tail . (\case
+                                            MoveW -> "p'!.03"
+                                            MoveE -> "bcefy2"
+                                            MoveSW -> "aghij4"
+                                            MoveSE -> "lmno 5"
+                                            RotateCW -> "dqrvz1"
+                                            RotateCCW -> "kstuwx"))
+
+
 main :: IO ()
 main = do
   options <- execParser $ info (helper <*> options)
@@ -98,15 +108,21 @@ main = do
           (scs, sol) <- fmap unzip
                         $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
-                          let initialStep = SolveStep seed True initialMap 0 0 OEmpty 0
-                          let solveEnv = SolveEnv (pb^.problemWidth) (pb^.problemHeight) units' (options^.optBranching) (options^.optDepth)
+                          let initialStep = SolveStep seed True initialMap 0 0 initialOState 0 
+                          let solveEnv = SolveEnv
+                                         (pb^.problemWidth) (pb^.problemHeight)
+                                         units'
+                                         (options^.optBranching) (options^.optDepth)
+                                         (makeAC (makeTrie powerPhrases))
                           let tree = runReader (solveTree initialStep) solveEnv
                           s <- liftIO $ runReaderT (pickOne (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
-                          let opt = optimize $ s^.stepCommands
+                          let opt = bestOState (s^.stepOState)
                           let sc = s^.stepScore + 2 * _oScore opt + 300 * Map.size (_oWhich opt)
-                          liftIO $ putStrLn $ "output size " ++ show (outputSize (s^.stepCommands))
                           liftIO $ print (opt&_oWhich)
                           liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (2 * _oScore opt + 300 * Map.size (_oWhich opt))
+                          -- liftIO $ print $ phraseToCommands (_oList opt & DL.toList)
+                          -- liftIO $ simulate seed initialMap (pb^.problemWidth) (pb^.problemHeight) units'
+                          --   (phraseToCommands (_oList opt & DL.toList))
                           pure $ (sc, Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList))
           liftIO $ putStrLn $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))
           pure sol

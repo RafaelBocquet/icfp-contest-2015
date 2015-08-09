@@ -19,6 +19,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
+import System.IO.Unsafe
 
 import Data.Tuple
 import Linear
@@ -78,6 +79,15 @@ commandTransitions = UnitTransition MoveW MoveE MoveSW MoveSE RotateCW RotateCCW
 instance Applicative UnitTransition where
   pure a = UnitTransition a a a a a a
   UnitTransition a b c d e f <*> UnitTransition a' b' c' d' e' f' = UnitTransition (a a') (b b') (c c') (d d') (e e') (f f')
+type instance Key UnitTransition = Command
+instance Lookup UnitTransition where lookup = lookupDefault
+instance Indexable UnitTransition where
+  index (UnitTransition a b c d e f) MoveW = a
+  index (UnitTransition a b c d e f) MoveE = b
+  index (UnitTransition a b c d e f) MoveSW = c
+  index (UnitTransition a b c d e f) MoveSE = d
+  index (UnitTransition a b c d e f) RotateCW = e
+  index (UnitTransition a b c d e f) RotateCCW = f
 -- This data structure is infinite if the graph is cyclic
 -- Transitions are O(1) !
 data GraphEntry = GraphEntry
@@ -138,6 +148,64 @@ makeUpdate l =
 validEntry :: FillMap -> GraphEntry -> Bool
 validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
 
+
+data SimStep = SimStep
+               { _simRandom    :: Int
+               , _simFillMap   :: FillMap
+               , _simPosition  :: GraphEntry
+               }
+makeLenses ''SimStep
+
+simulateNextUnit :: Monad m => Int -> Int -> Vector UnitData -> StateT SimStep m ()
+simulateNextUnit w h units = do
+  n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral)
+       $ simRandom <<%= (.&. 0xFFFFFFFF) . (+ 12345) . (* 1103515245)
+  traceShowM n
+  simPosition .= units V.! (n `mod` V.length units) ^. unitInitial
+
+simulateCommand :: Monad m => Int -> Int -> Vector UnitData -> Command -> StateT SimStep m Bool
+simulateCommand w h u c = do
+  use (simPosition.geTransitions) <&> (index ?? c)
+    >>= \case
+    Nothing -> do
+      a <- use simPosition
+      simFillMap %= snd . clearFulls . (a^.geUpdate)
+      simulateNextUnit w h u
+      pure True
+    Just a  -> do
+      v <- use simFillMap
+      if validEntry v a
+        then do
+        simPosition .= a
+        pure True
+        else do
+        a <- use simPosition
+        simFillMap %= snd . clearFulls . (a^.geUpdate)
+        simulateNextUnit w h u
+        pure True
+
+
+simulate :: Int -> FillMap -> Int -> Int -> Vector UnitData -> [Command] -> IO ()
+simulate s v w h u cs = evalStateT
+                    (let a (c:cs) = do
+                           b <- simulateCommand w h u c
+                           v <- use simFillMap
+                           liftIO $ print b
+                           liftIO $ print c
+                           u <- use simPosition
+                           liftIO $ print (u^.gePosition)
+                           liftIO $ printMap (\i j -> (v & u^.geUpdate) V.! j VU.! i) w h
+                           if b then a cs else liftIO $ print cs
+                         a [] = pure ()
+                     in do
+                       simulateNextUnit w h u
+                       v <- use simFillMap
+                       u <- use simPosition
+                       liftIO $ printMap (\i j -> (v & u^.geUpdate) V.! j VU.! i) w h
+                       a cs
+                    ) (SimStep s v undefined)
+
+
 -- TODO : find a way to make this incremental
 -- TODO : change this to a bfs -> ALT
 
@@ -147,34 +215,34 @@ validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
 -- _2 : bfs queue
 -- _3 : how to reach this position
 -- _4 : final result : how to reach this position and lock
-findReachable_ :: FillMap -> IntMap (Output Command) ->
-                  State (IntSet, Seq (GraphEntry, Output Command), IntMap (Output Command), IntMap ((Int, FillMap), Output Command)) ()
-                  -- (DList ((Int, FillMap), Output Command))
-findReachable_ v mp = do
+findReachable_ :: AC -> FillMap -> Map Position (OState Char) ->
+                  State (Set Position, Seq (GraphEntry, OState Char), Map Position (OState Char), Map Position ((Int, FillMap), OState Char)) ()
+findReachable_ ac v mp = do
   _2 %%= maybe (Nothing, Empty) (first Just) . uncons
     >>= \case
       Nothing -> pure ()
       Just (ge, o) -> do
-        let cs = fromJust (lookup (ge^.gePosition.to hash) mp)
-        uex <- _1.contains (ge^.gePosition.to hash) <<.= True
-        _3 %= IntMap.insertWith OAlt (ge^.gePosition.to hash) o
+        let cs = fromJust (lookup (ge^.gePosition) mp)
+        uex <- _1.contains (ge^.gePosition) <<.= True
+        _3 %= Map.insertWith (IntMap.unionWith maxEntry) (ge^.gePosition) o
         when (not uex) $ do
           b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
             ex <- use _1
             let d = do e <- maybe (Left False) Right a -- Left False : can be used to stop the current unit
-                       when (IntSet.member (hash $ e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
+                       when (Set.member (e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
                        when (not $ validEntry v e) (Left False)
                        pure e
-            forM d $ \gd -> _2 %= (:> (gd, OAppend cs (OSingle c)))
+            forM d $ \gd -> _2 %= (:> (gd, oacNext ac (outputString (OSingle c)) cs))
           let c = (,) <$> commandTransitions <*> b
                   & toList & filter ((== Left False).snd) <&> fst
           when (not (null c)) $ do
-            _4.at (ge^.gePosition.to hash) .= Just (clearFulls (ge^.geUpdate $ v), OAppend cs OEmpty)
-        findReachable_ v mp
+            _4.at (ge^.gePosition) .= Just ( clearFulls (ge^.geUpdate $ v)
+                                           , oacNext ac (outputString (foldr1 OAlt (fmap OSingle c))) cs)
+        findReachable_ ac v mp
 
-findReachable :: FillMap -> UnitData -> [((Int, FillMap), Output Command)]
-findReachable v u = let (_, _, mp, r) = execState (findReachable_ v mp) (mempty, Seq.singleton (u^.unitInitial, OEmpty), mempty, mempty)
-                    in IntMap.elems r
+findReachable :: AC -> FillMap -> OState Char -> UnitData -> [((Int, FillMap), OState Char)]
+findReachable ac v s u = let (_, _, mp, r) = execState (findReachable_ ac v mp) (mempty, Seq.singleton (u^.unitInitial, s), mempty, mempty)
+                         in Map.elems r
 
 clearFulls :: FillMap -> (Int, FillMap)
 clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
@@ -187,7 +255,7 @@ data SolveStep = SolveStep
                  , _stepFillMap   :: FillMap
                  , _stepScore     :: Int
                  , _stepLastLines :: Int
-                 , _stepCommands  :: Output Command
+                 , _stepOState    :: OState Char
 
                  , _stepFillScore :: Ratio Integer
                    -- ^ Fill Score : it is better to fill nonempty lines
@@ -207,6 +275,7 @@ rankStep :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep w h s =
   fromIntegral (s ^. stepScore)
   + (s ^. stepFillScore)
+  + stateScore (bestOState (s ^. stepOState)) % 1
   - if s ^. stepRunning then 0 else 400 -- Losing is bad (but this measure is also bad)
 
 data SolveEnv = SolveEnv
@@ -215,6 +284,8 @@ data SolveEnv = SolveEnv
                 , _sUnits :: Vector UnitData
                 , _sBranching :: Int
                 , _sDepth :: Int
+
+                , _sAC :: AC
                 }
 makeLenses ''SolveEnv
 
@@ -224,15 +295,15 @@ singleStep s
       let n = (.&. 0x7FFF) . flip shiftR 16 . fromIntegral $ s^.stepRandom
           nr = (.&. 0xFFFFFFFF) . (+ 12345) . (* 1103515245) $ s^.stepRandom
           v = s ^. stepFillMap
-      traceShowM n
       w <- view sWidth
       h <- view sHeight
       us <- view sUnits
       branching <- view sBranching
+      ac <- view sAC
       let u = us V.! (n `mod` V.length us)
       if validEntry v (u^.unitInitial)
         then do
-        let r = findReachable v u
+        let r = findReachable ac v (s^.stepOState) u
             ss = r <&> \((l, v'), cs) -> SolveStep nr True v'
                                          (s^.stepScore +
                                           let points = (u^.unitSize) + 50*(1+l)*l
@@ -240,7 +311,7 @@ singleStep s
                                           in points + if lsln > 1 then ((lsln-1)*points+9)`div`10 else 0
                                          )
                                          l
-                                         ((s^.stepCommands) `OAppend` cs)
+                                         cs
                                          (getFillScore w h v')
         pure $ take branching (sortBy (flip compare `on` rankStep w h) ss)
         else pure [s & stepRunning .~ False]
@@ -250,19 +321,22 @@ solveTree :: SolveStep -> Reader SolveEnv (Tree SolveStep)
 solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
 
 pickOne :: String -> Int -> Tree SolveStep -> ReaderT SolveEnv IO SolveStep
-pickOne s 90 (Node a _)  = do
+pickOne s 0 (Node a _)  = do
+  w <- view sWidth
+  h <- view sHeight
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  -- print (a ^. stepScore)
+  -- liftIO $ print (a ^. stepScore)
   pure a
 pickOne s i (Node a as) = do
+  w <- view sWidth
+  h <- view sHeight
   liftIO $ do
     putChar '\r'
     putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
     hFlush stdout
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
   -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore))
+  -- liftIO $ print (phraseToCommands (DL.toList (a^.stepOState&bestOState&_oList)))
   -- liftIO $ putStrLn ""
-  w <- view sWidth
-  h <- view sHeight
   depth <- view sDepth
   pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))
