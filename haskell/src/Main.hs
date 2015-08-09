@@ -103,6 +103,7 @@ main = do
           visLine "Bad input"
           fail "Bad input"
         Just pb -> do
+          printProblem pb
           let units' = pb ^. problemUnits
                        <&> computeUnitData (pb^.problemWidth) (pb^.problemHeight)
                        & V.fromList
@@ -112,7 +113,7 @@ main = do
           (scs, sol) <- fmap unzip
                         $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
-                          let initialStep = SolveStep seed True initialMap 0 0 initialOState 0
+                          let initialStep = SolveStep seed True initialMap 0 0 initialOState 0 0
                           let ac = makeAC (makeTrie powerPhrases)
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)

@@ -145,10 +145,10 @@ computeUnitData w h u = udata
 makeUpdate :: [(Int, Int)] -> FillMap -> FillMap
 makeUpdate l =
   let l' = l <&> swap & sort & groupBy ((==) `on` fst) <&> \(xs@((x,_):_)) -> (x, snd<$>xs)
-  in \v -> v V.// (l' <&> \(x, ys) -> (x, (v V.! x) VU.// zip ys (repeat True)))
+  in \v -> v V.// (l' <&> \(x, ys) -> (x, (v `V.unsafeIndex` x) VU.// zip ys (repeat True)))
 
 validEntry :: FillMap -> GraphEntry -> Bool
-validEntry v e = all (\(x, y) -> not $ v V.! y VU.! x) (e^.geMembers)
+validEntry v e = all (\(x, y) -> not $ v `V.unsafeIndex` y `VU.unsafeIndex` x) (e^.geMembers)
 
 data SimStep = SimStep
                { _simRandom    :: Int
@@ -216,7 +216,7 @@ simulate s v w h u cs = evalStateT
 -- _2 : bfs queue
 -- _3 : how to reach this position
 -- _4 : final result : how to reach this position and lock
-findReachable_ :: AC -> OCommandCache -> FillMap -> IntMap (OState Char) -> 
+findReachable_ :: AC -> OCommandCache -> FillMap -> IntMap (OState Char) ->
                   State (IntSet, Seq (GraphEntry, OState Char), IntMap (OState Char), [((Int, FillMap), OState Char)]) ()
 findReachable_ ac cc v mp = do
   _2 %%= maybe (Nothing, Empty) (first Just) . uncons
@@ -259,30 +259,42 @@ data SolveStep = SolveStep
                  , _stepOState    :: OState Char
 
                  , _stepFillScore :: Ratio Integer
+                 , _stepAcc       :: Int
                    -- ^ Fill Score : it is better to fill nonempty lines
                    -- ^              it is better to fill lines with high height (as we spawn from low heights)
                  }
 makeLenses ''SolveStep
 
 getFillScore :: Int -> Int -> FillMap -> Ratio Integer
-getFillScore w h v = let w' = fromIntegral w
-                         h' = fromIntegral h in
+getFillScore w h v = let w' = fromIntegral w :: Integer
+                         h' = fromIntegral h :: Integer in
                      V.sum $ V.imap (\i v' -> let a = VU.foldl' (\x -> (+ x) . bool 0 1) 0 v'
-                                              in (50*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
-                                                 - 50 * (a * (fromIntegral $ (V.length v - 1 - i)^2)) % (h'*h')
+                                              in (40*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
+                                                 - 20 * (a * (fromIntegral $ let x = h - 1 - i in if x > h`div`2 then x^2 else 0)) % (h'*h')
                                     ) v
+
+getAcc :: Int -> Int -> FillMap -> Int
+getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
+  where go i []     a = 0
+        go i (v:vs) a = let a' = VU.zipWith (&&) v a
+                        in VU.foldl' (\x -> (+ x) . bool 0 1) 0 a'
+                           + go (i+1) vs (VU.generate w $ if i`mod`2 == 0
+                                                          then \i -> a' VU.! i || (if i+1<w then a' VU.! (i+1) else False)
+                                                          else \i -> a' VU.! i || (if i>0 then a' VU.! (i-1) else False)
+                                         )
 
 rankStep :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep w h s =
   fromIntegral (s ^. stepScore)
   + (s ^. stepFillScore)
+  - 5 * (fromIntegral (s ^. stepAcc)) % 1
   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
 
 rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep2 w h s =
   fromIntegral (s ^. stepScore)
-  + (s ^. stepFillScore)
-  + stateScore (bestOState (s ^. stepOState)) % 1
+  -- + (s ^. stepFillScore)
+  + (stateScore (bestOState (s^.stepOState))) % 1
   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
 
 data SolveEnv = SolveEnv
@@ -322,11 +334,12 @@ singleStep s
                                          l
                                          cs
                                          (getFillScore w h v')
+                                         (getAcc w h v')
         pure $ ss
-          & foldr (\a -> IntMap.insertWith (++) (a^.stepLastLines) [a]) IntMap.empty
-          & IntMap.toList & reverse
-          <&> sortBy (flip compare `on` rankStep w h) . snd
-          & transpose & concat
+          -- & foldr (\a -> IntMap.insertWith (++) (a^.stepLastLines) [a]) IntMap.empty
+          -- & IntMap.toList & reverse
+          & sortBy (flip compare `on` rankStep w h) 
+          -- & transpose & concat
           & take branching
         else pure [s & stepRunning .~ False]
   | otherwise = pure [s]
@@ -338,19 +351,22 @@ pickOne :: String -> Int -> Tree SolveStep -> ReaderT SolveEnv IO SolveStep
 pickOne s 0 (Node a _)  = do
   w <- view sWidth
   h <- view sHeight
-  liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  liftIO $ print (a ^. stepScore + stateScore (bestOState (a ^. stepOState)))
+  -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+  -- liftIO $ print (a ^. stepScore + stateScore (bestOState (a ^. stepOState)))
   pure a
-pickOne s i (Node a as) = do
+pickOne s i (Node a as) | not (a ^. stepRunning) = pure a
+                        | otherwise = do
   w <- view sWidth
   h <- view sHeight
-  -- liftIO $ do
-  --   putChar '\r'
-  --   putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
-  --   hFlush stdout
-  liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
+  liftIO $ do
+    putChar '\r'
+    putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
+    hFlush stdout
+  -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+  -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
   -- liftIO $ print (phraseToCommands (DL.toList (a^.stepOState&bestOState&_oList)))
   liftIO $ putStrLn ""
   depth <- view sDepth
-  pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 w h) . (!! (min i depth - 1)) . levels))
+  if i <= depth
+    then pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 w h) . (!! (min i depth - 1)) . levels))
+    else pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))
