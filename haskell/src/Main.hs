@@ -33,8 +33,7 @@ data Options = Options
                , _optMemory :: Maybe Int
                , _optPower  :: [String]
                , _optSend   :: Bool
-               -- , _optBranching :: Int
-               -- , _optDepth     :: Int
+               , _optPrintMap :: Bool
                }
 makeLenses ''Options
 
@@ -50,6 +49,7 @@ options = Options
           <*> optional (option auto ( short 'm' ))
           <*> many (strOption ( short 'p' ))
           <*> switch ( long "send" )
+          <*> switch ( long "print-map" )
 
 printProblem :: Problem -> IO ()
 printProblem pb = do
@@ -98,16 +98,15 @@ main = do
                           let w = pb ^. problemWidth
                           let h = pb ^. problemHeight
                           let localTime = time / fromIntegral (length $ options^.optInput) / fromIntegral (length $ pb^.problemSourceSeeds)
+                                          / fromIntegral (pb^.problemSourceLength)
                                           / fromIntegral w / fromIntegral h
                           putStrLn $ "TIME : " ++ show localTime
                           let (branching, depth) =
-                                find (\(a,b) -> fromIntegral (a^b) <= 140.0 * localTime)
+                                find (\(a,b) -> fromIntegral (a^b) <= 18000.0 * localTime)
                                 (sortBy (flip compare `on` uncurry (^))
-                                 $ [ (3,3), (3,4), (3,5), (3,6), (3, 7)
-                                   , (4, 4), (4, 5), (4, 6), (4, 7)
-                                   , (5, 5), (5, 6), (5, 7)
-                                   , (6, 6), (6, 7)
-                                   , (2,2), (2,3), (2,4), (2,5), (2,6)])
+                                 $ [ (3,3), (3,4), (3,5)
+                                   , (4, 4), (4, 5), (4, 6), (4, 7), (4, 8)
+                                   , (2,2), (2,3), (2,4)])
                                 & maybe (1, 1) id
                           print (branching, depth)
                           let initialStep = SolveStep seed True initialMap 0 0 initialOState 0 0
@@ -118,11 +117,11 @@ main = do
                                          branching depth
                                          ac (oacCacheCommands ac)
                           let tree = runReader (solveTree initialStep) solveEnv
-                          s <- runReaderT (pickOne (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
+                          s <- runReaderT (pickOne (options^.optPrintMap) (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
                           let opt = bestOState (s^.stepOState)
                           let sc = s^.stepScore + stateScore opt
                           print (opt&_oWhich)
-                          putStrLn $ show (s^.stepScore) ++ " + " ++ show (stateScore opt)
+                          putStrLn $ show (s^.stepScore) ++ " + " ++ show (stateScore opt :: Int)
                           -- liftIO $ print $ phraseToCommands (_oList opt & DL.toList)
                           -- liftIO $ simulate seed initialMap (pb^.problemWidth) (pb^.problemHeight) units'
                           --   (phraseToCommands (_oList opt & DL.toList))

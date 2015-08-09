@@ -349,25 +349,28 @@ singleStep s
 solveTree :: SolveStep -> Reader SolveEnv (Tree SolveStep)
 solveTree s = Node s <$> (singleStep s >>= mapM solveTree)
 
-pickOne :: String -> Int -> Tree SolveStep -> ReaderT SolveEnv IO SolveStep
-pickOne s 0 (Node a _)  = do
+pickOne :: Bool -> String -> Int -> Tree SolveStep -> ReaderT SolveEnv IO SolveStep
+pickOne pm s 0 (Node a _)  = do
   w <- view sWidth
   h <- view sHeight
-  -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  -- liftIO $ print (a ^. stepScore + stateScore (bestOState (a ^. stepOState)))
+  when pm $ do
+    liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+    liftIO $ print (a ^. stepScore + stateScore (bestOState (a ^. stepOState)))
   pure a
-pickOne s i (Node a as) | not (a ^. stepRunning) = pure a
+pickOne pm s i (Node a as) | not (a ^. stepRunning) = pure a
                         | otherwise = do
   w <- view sWidth
   h <- view sHeight
-  liftIO $ do
+  if not pm
+    then liftIO $ do
     putChar '\r'
     putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
     hFlush stdout
-  -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-  -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
-  -- liftIO $ putStrLn ""
+    else do
+    liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
+    liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
+    liftIO $ putStrLn ""
   depth <- view sDepth
   if i <= depth
-    then pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 w h) . (!! (min i depth - 1)) . levels))
-    else pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))
+    then pickOne pm s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 w h) . (!! (min i depth - 1)) . levels))
+    else pickOne pm s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep w h) . (!! (min i depth - 1)) . levels))

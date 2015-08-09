@@ -189,12 +189,13 @@ stateScore opt = 2 * fromIntegral (_oScore opt) + 300 * fromIntegral (IntSet.siz
 
 powerPhrases :: [[Char]]
 powerPhrases = [ "ei!"
-               , "ia! ia!"
-               , "r'lyeh"
-               , "yuggoth"
-               , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
-               , "blue hades"
-               , "tsathoggua"
+               , "buckaroo"
+               -- , "ia! ia!"
+               -- , "r'lyeh"
+               -- , "yuggoth"
+               -- , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
+               -- , "blue hades"
+               -- , "tsathoggua"
                -- , "john bigbootay!"
                ]
 

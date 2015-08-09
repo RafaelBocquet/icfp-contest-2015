@@ -25,16 +25,17 @@ import Data.Aeson as A
 data Solution = Solution
                 { _solutionProblemId :: Int
                 , _solutionSeed      :: Int
+                , _solutionScore    :: Int
                 , _solutionTag       :: String
                 , _solutionCommands  :: String
                 }
 
 instance ToJSON Solution where
-  toJSON (Solution a b c d) = object [ "problemId" A..= a
-                                     , "seed" A..= b
-                                     , "tag" A..= c
-                                     , "solution" A..= d
-                                     ]
+  toJSON (Solution a b _ c d) = object [ "problemId" A..= a
+                                       , "seed" A..= b
+                                       , "tag" A..= c
+                                       , "solution" A..= d
+                                       ]
 
 data SolutionIn = SolutionIn
                 { _sProblem :: Int
@@ -47,7 +48,7 @@ instance FromJSON SolutionIn where
   parseJSON (Object v) = SolutionIn
                          <$> v .: "problemId"
                          <*> v .: "seed"
-                         <*> v .: "score"
+                         <*> (fromMaybe (-10000000) <$> (v .:? "score"))
                          <*> v .: "solution"
   parseJSON _ = error "parseJSON: Problem"
 
@@ -64,10 +65,12 @@ main = do
   case a of
     Left s -> print s
     Right a -> do
-      let b = a <&> (\s -> ((s&_sProblem, s&_sSeed), (s&_sScore, Solution (s&_sProblem) (s&_sSeed) tag (s&_sData))))
+      let b = a <&> (\s -> ((s&_sProblem, s&_sSeed), (s&_sScore, Solution (s&_sProblem) (s&_sSeed) (s&_sScore) tag (s&_sData))))
               & Map.fromListWith (\(a,x) (b,y) -> if a >= b then (a, x) else (b,y))
-              & Map.elems <&> snd
-      print (length b)
+              & Map.elems <&> snd & groupBy ((==) `on` _solutionProblemId)
+      forM_ b $ \pbs -> do
+        putStrLn $ show (head pbs&_solutionProblemId) ++ "\t" ++ show (sum (pbs<&>_solutionScore)`div`length pbs)
+      pure ()
   -- rsp <- postWith
   --        (defaults
   --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
