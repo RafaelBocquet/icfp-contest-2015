@@ -22,7 +22,6 @@ import System.Environment
 import Options.Applicative
 import Data.Aeson
 
-import Vis
 import Game
 import Solver
 import Optimizer
@@ -34,9 +33,8 @@ data Options = Options
                , _optMemory :: Maybe Int
                , _optPower  :: [String]
                , _optSend   :: Bool
-               , _optVis    :: String
-               , _optBranching :: Int
-               , _optDepth     :: Int
+               -- , _optBranching :: Int
+               -- , _optDepth     :: Int
                }
 makeLenses ''Options
 
@@ -52,28 +50,14 @@ options = Options
           <*> optional (option auto ( short 'm' ))
           <*> many (strOption ( short 'p' ))
           <*> switch ( long "send" )
-          <*> strOption
-          ( long "vis"
-            <> short 'v'
-            <> help "Visualisation folder" )
-          <*> option auto ( long "branching"
-                            <> help "Branching factor of the solve tree"
-                          )
-          <*> option auto ( long "depth"
-                            <> help "Depth of the solve tree search"
-                          )
 
-printProblem :: Problem -> Vis ()
+printProblem :: Problem -> IO ()
 printProblem pb = do
   let w = pb ^. problemWidth
       h = pb ^. problemHeight
       f = pb ^. problemFilled & Set.fromList
-  visLine ("SIZE : " ++ show (pb ^. problemWidth) ++ "x" ++ show (pb ^. problemHeight))
-  visLine ("UNIT COUNT : " ++ show (pb ^. problemUnits.to length))
-  visLine ("SOURCE LENGTH : " ++ show (pb ^. problemSourceLength))
-  visLine ("SOURCE COUNT : " ++ show (pb ^. problemSourceSeeds.to length))
-  liftIO $ putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
-  liftIO $ printMap (curry $ Set.member ?? f) w h
+  putStrLn $ " === " ++ show (pb ^. problemId) ++ " === "
+  printMap (curry $ Set.member ?? f) w h
   forM_ (pb ^. problemUnits) $ \u -> do
     liftIO $ putStrLn "UNIT"
     liftIO $ printUnit $ u
@@ -94,16 +78,14 @@ main = do
              (fullDesc
               <> progDesc "ICFP 2015 !"
               <> header "Rafaël Bocquet & ???" )
-  sol <- runVis (options ^. optVis) $ do
+  let time = fromIntegral $ fromMaybe 500 (options ^. optTime) :: Double
+  sol <- do
     forM (options ^. optInput) $ \inputfile -> do
-      input     <- liftIO $ BL.readFile inputfile
-      visLine ("Input file : " ++ inputfile)
+      input     <- BL.readFile inputfile
       case decode input :: Maybe Problem of
         Nothing -> do
-          visLine "Bad input"
           fail "Bad input"
         Just pb -> do
-          printProblem pb
           let units' = pb ^. problemUnits
                        <&> computeUnitData (pb^.problemWidth) (pb^.problemHeight)
                        & V.fromList
@@ -113,24 +95,39 @@ main = do
           (scs, sol) <- fmap unzip
                         $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
+                          let w = pb ^. problemWidth
+                          let h = pb ^. problemHeight
+                          let localTime = time / fromIntegral (length $ options^.optInput) / fromIntegral (length $ pb^.problemSourceSeeds)
+                                          / fromIntegral w / fromIntegral h
+                          putStrLn $ "TIME : " ++ show localTime
+                          let (branching, depth) =
+                                find (\(a,b) -> fromIntegral (a^b) <= 140.0 * localTime)
+                                (sortBy (flip compare `on` uncurry (^))
+                                 $ [ (3,3), (3,4), (3,5), (3,6), (3, 7)
+                                   , (4, 4), (4, 5), (4, 6), (4, 7)
+                                   , (5, 5), (5, 6), (5, 7)
+                                   , (6, 6), (6, 7)
+                                   , (2,2), (2,3), (2,4), (2,5), (2,6)])
+                                & maybe (1, 1) id
+                          print (branching, depth)
                           let initialStep = SolveStep seed True initialMap 0 0 initialOState 0 0
                           let ac = makeAC (makeTrie powerPhrases)
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)
                                          units'
-                                         (options^.optBranching) (options^.optDepth)
+                                         branching depth
                                          ac (oacCacheCommands ac)
                           let tree = runReader (solveTree initialStep) solveEnv
-                          s <- liftIO $ runReaderT (pickOne (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
+                          s <- runReaderT (pickOne (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
                           let opt = bestOState (s^.stepOState)
                           let sc = s^.stepScore + stateScore opt
-                          liftIO $ print (opt&_oWhich)
-                          liftIO $ putStrLn $ show (s^.stepScore) ++ " + " ++ show (stateScore opt)
+                          print (opt&_oWhich)
+                          putStrLn $ show (s^.stepScore) ++ " + " ++ show (stateScore opt)
                           -- liftIO $ print $ phraseToCommands (_oList opt & DL.toList)
                           -- liftIO $ simulate seed initialMap (pb^.problemWidth) (pb^.problemHeight) units'
                           --   (phraseToCommands (_oList opt & DL.toList))
                           pure $ (sc, Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList))
-          liftIO $ putStrLn $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))
+          putStrLn $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))
           pure sol
   when (options ^. optSend) $ do
     rsp <- postWith

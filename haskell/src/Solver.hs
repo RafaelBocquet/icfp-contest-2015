@@ -270,7 +270,8 @@ getFillScore w h v = let w' = fromIntegral w :: Integer
                          h' = fromIntegral h :: Integer in
                      V.sum $ V.imap (\i v' -> let a = VU.foldl' (\x -> (+ x) . bool 0 1) 0 v'
                                               in (40*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
-                                                 - 20 * (a * (fromIntegral $ let x = h - 1 - i in if x > h`div`2 then x^2 else 0)) % (h'*h')
+                                                 - 20 * (a * (fromIntegral $ let x = h - 1 - i
+                                                                             in if x > h`div`2 then x^(2 :: Integer) else 0)) % (h'*h')
                                     ) v
 
 getAcc :: Int -> Int -> FillMap -> Int
@@ -278,7 +279,7 @@ getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
   where go i []     a = 0
         go i (v:vs) a = let a' = VU.zipWith (&&) v a
                         in VU.foldl' (\x -> (+ x) . bool 0 1) 0 a'
-                           + go (i+1) vs (VU.generate w $ if i`mod`2 == 0
+                           + go (i+1) vs (VU.generate w $ if i`mod`2 == (0 :: Integer)
                                                           then \i -> a' VU.! i || (if i+1<w then a' VU.! (i+1) else False)
                                                           else \i -> a' VU.! i || (if i>0 then a' VU.! (i-1) else False)
                                          )
@@ -288,6 +289,7 @@ rankStep w h s =
   fromIntegral (s ^. stepScore)
   + (s ^. stepFillScore)
   - 5 * (fromIntegral (s ^. stepAcc)) % 1
+  + (stateScore (bestOState (s^.stepOState))) % 2
   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
 
 rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
@@ -364,8 +366,7 @@ pickOne s i (Node a as) | not (a ^. stepRunning) = pure a
     hFlush stdout
   -- liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
   -- liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
-  -- liftIO $ print (phraseToCommands (DL.toList (a^.stepOState&bestOState&_oList)))
-  liftIO $ putStrLn ""
+  -- liftIO $ putStrLn ""
   depth <- view sDepth
   if i <= depth
     then pickOne s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 w h) . (!! (min i depth - 1)) . levels))

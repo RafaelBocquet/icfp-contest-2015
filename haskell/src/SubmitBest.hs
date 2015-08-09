@@ -53,18 +53,24 @@ instance FromJSON SolutionIn where
 
 main :: IO ()
 main = do
-  [tag] <- getArgs
-  rsp1 <- getWith
-         (defaults
-          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-         "https://davar.icfpcontest.org/teams/99/solutions"
-  let Just a = decode (rsp1^.responseBody) :: Maybe [SolutionIn]
-      b = a <&> (\s -> ((s&_sProblem, s&_sSeed), (s&_sScore, Solution (s&_sProblem) (s&_sSeed) tag (s&_sData))))
-          & Map.fromListWith (\(a,x) (b,y) -> if a >= b then (a, x) else (b,y))
-          & Map.elems <&> snd
-  rsp <- postWith
-         (defaults
-          & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-         "https://davar.icfpcontest.org/teams/99/solutions"
-         (toJSON b)
-  print rsp
+  [tag, fn] <- getArgs
+  rsp1 <- BL.readFile fn
+  -- rsp1 <- getWith
+  --        (defaults
+  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+  --        "https://davar.icfpcontest.org/teams/99/solutions"
+  print "received"
+  let a = eitherDecode rsp1 :: Either String [SolutionIn]
+  case a of
+    Left s -> print s
+    Right a -> do
+      let b = a <&> (\s -> ((s&_sProblem, s&_sSeed), (s&_sScore, Solution (s&_sProblem) (s&_sSeed) tag (s&_sData))))
+              & Map.fromListWith (\(a,x) (b,y) -> if a >= b then (a, x) else (b,y))
+              & Map.elems <&> snd
+      print (length b)
+  -- rsp <- postWith
+  --        (defaults
+  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+  --        "https://davar.icfpcontest.org/teams/99/solutions"
+  --        (toJSON b)
+  -- print rsp
