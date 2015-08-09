@@ -24,7 +24,9 @@ data Output a = OEmpty
               | OSingle a
               | OAppend (Output a) (Output a)
               | OAlt (Output a) (Output a)
-              deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+              deriving (Show, Eq, Ord, Functor, Foldable, Traversable, Generic)
+instance Hashable a => Hashable (Output a)
+
 
 outputSize :: Output a -> Integer
 outputSize = getSum . foldMap (const (Sum 1))
@@ -119,6 +121,8 @@ data OEntry a = OEntry { _oScore :: Int, _oWhich :: IntSet, _oList :: DList a }
 maxEntry :: OEntry a -> OEntry a -> OEntry a
 maxEntry (OEntry a w x) (OEntry b z y) = if a >= b then OEntry a w x else OEntry b z y
 
+type OState a = IntMap (OEntry a)
+
 {-# INLINE maxOState #-}
 maxOState :: OState a -> OState a -> OState a
 maxOState = IntMap.unionWith maxEntry
@@ -127,7 +131,24 @@ maxOState = IntMap.unionWith maxEntry
 appEntry :: Ord a => OEntry a -> OEntry a -> OEntry a
 appEntry (OEntry a w x) (OEntry b z y) = OEntry (a+b) (IntSet.union w z) (x<>y)
 
-type OState a = IntMap (OEntry a)
+oacCache :: Vector (OState Char) -> OState Char -> OState Char
+oacCache v x = x & IntMap.toList
+               <&> (\(y, o) -> v V.! y <&> appEntry o)
+               & IntMap.unionsWith maxEntry
+
+oacMakeCache :: AC -> Output Char -> Vector (OState Char)
+oacMakeCache ac@(s,_,_) o = V.generate s $ \i -> oacNext ac o (IntMap.singleton i (OEntry 0 mempty mempty))
+
+type OCacheT m a = StateT (HashMap (Output Char) (Vector (OState Char))) m a
+
+oacCacheOutput :: (Monad m, MonadFix m) => AC -> Output Char -> OCacheT m (Vector (OState Char))
+oacCacheOutput ac o = mdo
+  a <- (at o <.= Just a)
+       >>= maybe (pure (oacMakeCache ac o)) pure
+  pure a
+
+oacCacheNext :: (Monad m, MonadFix m) => AC -> Output Char -> OState Char -> OCacheT m (OState Char)
+oacCacheNext ac o x = oacCache <$> oacCacheOutput ac o <*> pure x
 
 oacNext :: AC -> Output Char -> OState Char -> OState Char
 oacNext ac OEmpty      x = x
@@ -146,12 +167,12 @@ oacFromList = foldr OAppend OEmpty . fmap OSingle
 outputString :: Output Command -> Output Char
 outputString = (=<<) $ foldr1 OAlt . fmap OSingle
                . (\case
-                      MoveW -> "p'!.03" :: String
-                      MoveE -> "bcefy2"
-                      MoveSW -> "aghij4"
-                      MoveSE -> "lmno 5"
-                      RotateCW -> "dqrvz1"
-                      RotateCCW -> "kstuwx"
+                      MoveW      -> "p'!.03" :: String
+                      MoveE      -> "bcefy2"
+                      MoveSW     -> "aghij4"
+                      MoveSE     -> "lmno 5"
+                      RotateCW   -> "dqrvz1"
+                      RotateCCW  -> "kstuwx"
                  )
 
 optimize :: Output Command -> OEntry Char
