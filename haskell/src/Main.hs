@@ -56,8 +56,12 @@ options = Options
           ( long "vis"
             <> short 'v'
             <> help "Visualisation folder" )
-          <*> option auto ( long "branching" )
-          <*> option auto ( long "depth" )
+          <*> option auto ( long "branching"
+                            <> help "Branching factor of the solve tree"
+                          )
+          <*> option auto ( long "depth"
+                            <> help "Depth of the solve tree search"
+                          )
 
 printProblem :: Problem -> Vis ()
 printProblem pb = do
@@ -108,7 +112,7 @@ main = do
           (scs, sol) <- fmap unzip
                         $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
-                          let initialStep = SolveStep seed True initialMap 0 0 initialOState 0 
+                          let initialStep = SolveStep seed True initialMap 0 0 initialOState 0
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)
                                          units'
