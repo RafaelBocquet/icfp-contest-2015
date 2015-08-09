@@ -268,7 +268,7 @@ getFillScore w h v = let w' = fromIntegral w
                          h' = fromIntegral h in
                      V.sum $ V.imap (\i v' -> let a = VU.foldl' (\x -> (+ x) . bool 0 1) 0 v'
                                               in (50*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
-                                                 - (a * (fromIntegral $ V.length v - 1 - i)) % h'
+                                                 - 50 * (a * (fromIntegral $ (V.length v - 1 - i)^2)) % (h'*h')
                                     ) v
 
 rankStep :: Int -> Int -> SolveStep -> Ratio Integer
