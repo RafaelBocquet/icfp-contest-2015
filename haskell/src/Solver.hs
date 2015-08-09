@@ -18,6 +18,7 @@ import qualified Diagrams.Prelude as D
 import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
 import System.IO.Unsafe
+import Unsafe.Coerce
 
 import Data.Tuple
 import Linear hiding (transpose)
@@ -90,6 +91,7 @@ instance Indexable UnitTransition where
 -- Transitions are O(1) !
 data GraphEntry = GraphEntry
                   { _gePosition    :: Position
+                  , _gePositionId  :: Int
                   , _geMembers     :: [(Int, Int)]
                   , _geUpdate      :: FillMap -> FillMap
                   , _geTransitions :: UnitTransition (Maybe GraphEntry)
@@ -123,19 +125,21 @@ computeUnitData w h u = udata
         valid = getAll . foldMap (bifoldMap (\x -> All (x >= 0 && x < w)) (\y -> All (y >= 0 && y < h))) . members
 
         -- RecursiveDo : only one map traversal !
-        go :: Position -> State (Map Position GraphEntry) (Maybe GraphEntry)
+        go :: Position -> State (Int, Map Position GraphEntry) (Maybe GraphEntry)
         go p | valid p = mdo
-                 a <- (at p <<.= Just a)
-                      >>= maybe (GraphEntry p (members p) (makeUpdate $ members p)
-                                 <$> (UnitTransition
-                                      <$> go (p&_1._x-~1) <*> go (p&_1._x+~1)
-                                      <*> go (p&_1._x-~1&_1._y+~1) <*> go (p&_1._y+~1)
-                                      <*> go (p&_2%~(rotateCW >>> normRot)) <*> go (p&_2%~(rotateCCW >>> normRot)))
+                 a <- (_2.at p <<.= Just a)
+                      >>= maybe (do
+                                     ix <- _1 <<+= 1
+                                     GraphEntry p ix (members p) (makeUpdate $ members p)
+                                       <$> (UnitTransition
+                                            <$> go (p&_1._x-~1) <*> go (p&_1._x+~1)
+                                            <*> go (p&_1._x-~1&_1._y+~1) <*> go (p&_1._y+~1)
+                                            <*> go (p&_2%~(rotateCW >>> normRot)) <*> go (p&_2%~(rotateCCW >>> normRot)))
                                 ) pure
                  pure $ Just a
              | otherwise = pure Nothing
 
-        udata = let (Just a, g) = runState (go init) Map.empty
+        udata = let (Just a, (_, g)) = runState (go init) (0, Map.empty)
                 in UnitData g a (u^.unitMembers.to length)
 
 makeUpdate :: [(Int, Int)] -> FillMap -> FillMap
@@ -212,34 +216,34 @@ simulate s v w h u cs = evalStateT
 -- _2 : bfs queue
 -- _3 : how to reach this position
 -- _4 : final result : how to reach this position and lock
-findReachable_ :: AC -> FillMap -> Map Position (OState Char) ->
-                  State (Set Position, Seq (GraphEntry, OState Char), Map Position (OState Char), Map Position ((Int, FillMap), OState Char)) ()
+findReachable_ :: AC -> FillMap -> IntMap (OState Char) ->
+                  State (IntSet, Seq (GraphEntry, OState Char), IntMap (OState Char), [((Int, FillMap), OState Char)]) ()
 findReachable_ ac v mp = do
   _2 %%= maybe (Nothing, Empty) (first Just) . uncons
     >>= \case
       Nothing -> pure ()
       Just (ge, o) -> do
-        let cs = fromJust (lookup (ge^.gePosition) mp)
-        uex <- _1.contains (ge^.gePosition) <<.= True
-        _3 %= Map.insertWith (IntMap.unionWith maxEntry) (ge^.gePosition) o
+        let cs = fromJust (lookup (ge^.gePositionId) mp)
+        uex <- _1.contains (ge^.gePositionId) <<.= True
+        _3 %= IntMap.insertWith (IntMap.unionWith maxEntry) (ge^.gePositionId) o
         when (not uex) $ do
           b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
             ex <- use _1
             let d = do e <- maybe (Left False) Right a -- Left False : can be used to stop the current unit
-                       when (Set.member (e^.gePosition) ex) (Left True) -- Left True : we fail if we do this
+                       when (IntSet.member (e^.gePositionId) ex) (Left True) -- Left True : we fail if we do this
                        when (not $ validEntry v e) (Left False)
                        pure e
             forM d $ \gd -> _2 %= (:> (gd, oacNext ac (outputString (OSingle c)) cs))
           let c = (,) <$> commandTransitions <*> b
                   & toList & filter ((== Left False).snd) <&> fst
           when (not (null c)) $ do
-            _4.at (ge^.gePosition) .= Just ( clearFulls (ge^.geUpdate $ v)
-                                           , oacNext ac (outputString (foldr1 OAlt (fmap OSingle c))) cs)
+            _4 %= ( (clearFulls (ge^.geUpdate $ v)
+                    , oacNext ac (outputString (foldr1 OAlt (fmap OSingle c))) cs) :)
         findReachable_ ac v mp
 
 findReachable :: AC -> FillMap -> OState Char -> UnitData -> [((Int, FillMap), OState Char)]
 findReachable ac v s u = let (_, _, mp, r) = execState (findReachable_ ac v mp) (mempty, Seq.singleton (u^.unitInitial, s), mempty, mempty)
-                         in Map.elems r
+                         in r
 
 clearFulls :: FillMap -> (Int, FillMap)
 clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
