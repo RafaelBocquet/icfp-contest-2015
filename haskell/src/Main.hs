@@ -14,6 +14,7 @@ import qualified Data.Vector.Mutable as VM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.DList as DL
+import Data.Char
 
 import Network.Wreq hiding (options, header, Options)
 import System.Environment
@@ -94,7 +95,7 @@ main = do
                           , "tsathoggua"
                           , "case nightmare green"
                           ]
-                     else (options^.optPower)
+                     else (fmap (fmap toLower) $ options^.optPower)
   sol <- do
     parallelInterleaved $ (flip fmap) (options ^. optInput) $ \inputfile -> do
       input     <- BL.readFile inputfile

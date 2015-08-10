@@ -21,5 +21,3 @@ language union), this automaton is able to find the word which gives the best sc
 phrases.
 
 The time complexity is (total power phrase length ^ 2 + max unit size) * width * height * source length * B ^ D.
-
-

@@ -9,13 +9,16 @@ import qualified Data.Set as Set
 import qualified Data.IntMap as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as VM
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.DList as DL
 import System.IO.Unsafe
 import Debug.Trace
 import Unsafe.Coerce
+import Control.Monad.ST
 import System.Random
 
 import Data.Tuple
@@ -96,9 +99,10 @@ data GraphEntry = GraphEntry
                   }
 
 data UnitData = UnitData
-                { _unitGraph   :: Map Position GraphEntry
-                , _unitInitial :: GraphEntry
-                , _unitSize    :: Int
+                { _unitGraph    :: Map Position GraphEntry
+                , _unitInitial  :: GraphEntry
+                , _unitSize     :: Int
+                , _unitPosCount :: Int
                 }
 
 type FillMap = Vector (VU.Vector Bool)
@@ -137,8 +141,8 @@ computeUnitData w h u = udata
                  pure $ Just a
              | otherwise = pure Nothing
 
-        udata = let (Just a, (_, g)) = runState (go init) (0, Map.empty)
-                in UnitData g a (u^.unitMembers.to length)
+        udata = let (Just a, (mx, g)) = runState (go init) (0, Map.empty)
+                in UnitData g a (u^.unitMembers.to length) (mx+1)
 
 makeUpdate :: [(Int, Int)] -> FillMap -> FillMap
 makeUpdate l =
@@ -213,23 +217,28 @@ simulate s v w h u cs = evalStateT
 -- _2 : bfs queue
 -- _3 : how to reach this position
 -- _4 : final result : how to reach this position and lock
-findReachable_ :: AC -> OCommandCache -> FillMap -> IntMap (OState Char) ->
-                  State (IntSet, Seq (GraphEntry, OState Char), IntMap (OState Char), [((Int, FillMap), OState Char)]) ()
+findReachable_ :: AC -> OCommandCache -> FillMap -> Vector (OState Char) ->
+                  StateT (STVector s Bool, Seq (GraphEntry, OState Char), STVector s (OState Char), [((Int, FillMap), OState Char)]) (ST s) ()
 findReachable_ ac cc v mp = do
   _2 %%= maybe (Nothing, Empty) (first Just) . uncons
     >>= \case
       Nothing -> pure ()
       Just (ge, o) -> do
-        let cs = fromJust (lookup (ge^.gePositionId) mp)
-        uex <- _1.contains (ge^.gePositionId) <<.= True
-        _3 %= IntMap.insertWith maxOState (ge^.gePositionId) o
+        let cs = mp V.! (ge^.gePositionId)
+        v1 <- use _1
+        uex <- VM.read v1 (ge^.gePositionId)
+        VM.write v1 (ge^.gePositionId) True
+        v3 <- use _3
+        VM.read v3 (ge^.gePositionId) <&> maxOState o >>= VM.write v3 (ge^.gePositionId)
         when (not uex) $ do
           b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
-            ex <- use _1
-            let d = do e <- maybe (Left False) Right a -- Left False : can be used to stop the current unit
-                       when (IntSet.member (e^.gePositionId) ex) (Left True) -- Left True : we fail if we do this
-                       when (not $ validEntry v e) (Left False)
-                       pure e
+            d <- case a of
+              Nothing -> pure (Left False)
+              Just e -> do
+                xxxxx <- VM.read v1 (e^.gePositionId)
+                pure $ if xxxxx
+                       then Left True
+                       else if validEntry v e then Right e else Left False
             forM d $ \gd -> _2 %= (:> (gd, oacCache (cc [c]) cs))
           let c = (,) <$> commandTransitions <*> b
                   & toList & filter ((== Left False).snd) <&> fst
@@ -239,8 +248,14 @@ findReachable_ ac cc v mp = do
         findReachable_ ac cc v mp
 
 findReachable :: AC -> OCommandCache -> FillMap -> OState Char -> UnitData -> [((Int, FillMap), OState Char)]
-findReachable ac cc v s u = let (_, _, mp, r) = execState (findReachable_ ac cc v mp) (mempty, Seq.singleton (u^.unitInitial, s), mempty, mempty)
-                            in r
+findReachable ac cc v s u =
+  let (mp, p) = runST $ do
+        xx <- VM.replicate (u^.unitPosCount) False
+        yy <- VM.replicate (u^.unitPosCount) mempty
+        (a,b,c,d) <- execStateT (findReachable_ ac cc v mp) (xx, Seq.singleton (u^.unitInitial, s), yy, [])
+        e <- V.freeze c
+        pure (e, d)
+  in p
 
 clearFulls :: FillMap -> (Int, FillMap)
 clearFulls v = let v' = V.filter (not . VU.foldr (&&) True) v
@@ -308,63 +323,23 @@ getAcc' w h v = V.sum $ V.imap
                    ) v'
                 ) v
 
-rankStepElems :: Int -> Int -> SolveStep -> (Int, Int, Integer, Int, Int, Ratio Integer)
-rankStepElems w h s = (s^.stepScore
-                      , (stateScoreSimple (bestOState (s^.stepOState)))
-                      , s^.stepFillScore & \a -> numerator a `div` denominator a
-                      , (10*(s^.stepAcc))`div`w
-                      , s^.stepAcc'
-                      , rankStep2 w h s)
-
 rankStep :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep w h s =
   let w' = fromIntegral w in
-  -- fromIntegral (s ^. stepScore)
   (s ^. stepFillScore)
-  -- + 10 * fromIntegral (s ^. stepAcc) % w'
   - 10 * fromIntegral (s ^. stepAcc')
   - if s ^. stepRunning then 0 else 10000 -- Losing is bad (but this measure is also bad)
 
-rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
-rankStep2 w h s =
+rankStep2 :: Int -> Int -> Int -> SolveStep -> Ratio Integer
+rankStep2 i w h s =
   let w' = fromIntegral w in
-  -- fromIntegral (s ^. stepScore)
-  -- + (stateScoreSimple (bestOState (s^.stepOState))) % 1
-  (s ^. stepFillScore)
-  -- + 10 * fromIntegral (s ^. stepAcc) % w'
+  (fromIntegral $ if i <= 20 then s^.stepScore + stateScore (bestOState (s^.stepOState)) else 0)
+  + (s ^. stepFillScore)
   - 10 * fromIntegral (s ^. stepAcc')
   - if s ^. stepRunning then 0 else 10000 -- Losing is bad (but this measure is also bad)
 
 rankStep3 :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep3 w h s = fromIntegral (s ^. stepScore) + (stateScore (bestOState (s^.stepOState))) % 1
-
-
--- getAcc :: Int -> Int -> FillMap -> Int
--- getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
---   where go i []     a = 0
---         go i (v:vs) a = let a' = VU.zipWith (&&) v a
---                         in VU.foldl' (\x -> (+ x) . bool 0 1) 0 a'
---                            + go (i+1) vs (VU.generate w $ if i`mod`2 == (0 :: Integer)
---                                                           then \i -> a' VU.! i || (if i+1<w then a' VU.! (i+1) else False)
---                                                           else \i -> a' VU.! i || (if i>0 then a' VU.! (i-1) else False)
---                                          )
-
--- rankStep :: Int -> Int -> SolveStep -> Ratio Integer
--- rankStep w h s =
---   fromIntegral (s ^. stepScore)
---   + (s ^. stepFillScore)
---   - 10 * (fromIntegral (s ^. stepAcc)) % fromIntegral w
---   + (stateScore (bestOState (s^.stepOState))) % 2
---   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
-
--- rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
--- rankStep2 w h s =
---   fromIntegral (s ^. stepScore)
---   + (s ^. stepFillScore)
---   - 10 * (fromIntegral (s ^. stepAcc)) % fromIntegral w
---   + (stateScore (bestOState (s^.stepOState))) % 1
---   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
-
 
 data SolveEnv = SolveEnv
                 { _sWidth :: Int
@@ -431,19 +406,13 @@ pickOne pm s i (Node a as) = do
   h <- view sHeight
   if not pm
     then liftIO $ do
-    putChar '\r'
-    putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
-    hFlush stdout
+    hPutChar stderr '\r'
+    hPutStr stderr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
+    hFlush stderr
     else do
-    liftIO $ hPrint stderr (a & rankStepElems w h)
     liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
     liftIO $ hPutStrLn stderr (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
-    -- liftIO $ hPutStrLn stderr "==="
-    -- forM_ (head . head . levels <$> as) $ \b -> do
-    --   liftIO $ hPrint stderr (b & rankStepElems w h)
-    --   liftIO $ printMap (\i j -> (b^.stepFillMap) V.! j VU.! i) w h
-    --   liftIO $ hPutStrLn stderr ""
   depth <- view sDepth
   if i <= depth
     then pickOne pm s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep3 w h) . (!! (min i depth - 1)) . levels))
-    else pickOne pm s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 w h) . (!! (min i depth - 1)) . levels))
+    else pickOne pm s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep2 i w h) . (!! (min i depth - 1)) . levels))
