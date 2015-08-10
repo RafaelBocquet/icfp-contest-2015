@@ -187,16 +187,6 @@ bestOState x = x & IntMap.toList <&> snd & maximumBy (compare `on` _oScore)
 stateScore :: Integral b => OEntry a -> b
 stateScore opt = 2 * fromIntegral (_oScore opt) + 300 * fromIntegral (IntSet.size (_oWhich opt))
 
-powerPhrases :: [[Char]]
-powerPhrases = [ "ei!"
-               , "ia! ia!"
-               , "r'lyeh"
-               , "yuggoth"
-               , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
-               , "blue hades"
-               , "tsathoggua"
-               ]
-
 phraseToCommands ∷ String → [Command]
 phraseToCommands = fmap (\x -> fst . fromJust $ find (elem x . snd)
                                [ (MoveW, "p'!.03" :: String)

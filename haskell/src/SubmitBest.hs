@@ -56,10 +56,6 @@ main :: IO ()
 main = do
   [tag, fn] <- getArgs
   rsp1 <- BL.readFile fn
-  -- rsp1 <- getWith
-  --        (defaults
-  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-  --        "https://davar.icfpcontest.org/teams/99/solutions"
   print "received"
   let a = eitherDecode rsp1 :: Either String [SolutionIn]
   case a of
@@ -70,10 +66,10 @@ main = do
               & Map.elems <&> snd & groupBy ((==) `on` _solutionProblemId)
       forM_ b $ \pbs -> do
         putStrLn $ show (head pbs&_solutionProblemId) ++ "\t" ++ show (sum (pbs<&>_solutionScore)`div`length pbs)
-      pure ()
-  -- rsp <- postWith
-  --        (defaults
-  --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-  --        "https://davar.icfpcontest.org/teams/99/solutions"
-  --        (toJSON b)
-  -- print rsp
+      print (length (show (toJSON b)))
+      -- rsp <- postWith
+      --        (defaults
+      --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+      --        "https://davar.icfpcontest.org/teams/99/solutions"
+      --        (toJSON b)
+      -- print rsp

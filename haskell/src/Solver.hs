@@ -226,7 +226,7 @@ findReachable_ ac cc v mp = do
       Just (ge, o) -> do
         let cs = fromJust (lookup (ge^.gePositionId) mp)
         uex <- _1.contains (ge^.gePositionId) <<.= True
-        _3 %= IntMap.insertWith (IntMap.unionWith maxEntry) (ge^.gePositionId) o
+        _3 %= IntMap.insertWith maxOState (ge^.gePositionId) o
         when (not uex) $ do
           b <- forM ((,) <$> commandTransitions <*> ge ^. geTransitions) $ \(c, a) -> do
             ex <- use _1
@@ -300,7 +300,7 @@ rankStep w h s =
 rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep2 w h s =
   fromIntegral (s ^. stepScore)
-  + (stateScore (bestOState (s^.stepOState))) % 2
+  + (stateScore (bestOState (s^.stepOState))) % 1
   + (s ^. stepFillScore)
   + 2 * fromIntegral (s ^. stepAcc) % 1
   - if s ^. stepRunning then 0 else 10000 -- Losing is bad (but this measure is also bad)

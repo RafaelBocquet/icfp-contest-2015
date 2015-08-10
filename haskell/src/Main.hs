@@ -21,6 +21,7 @@ import Network.Wreq hiding (options, header, Options)
 import System.Environment
 import Options.Applicative
 import Data.Aeson
+import Control.Concurrent.ParallelIO
 
 import Game
 import Solver
@@ -34,6 +35,8 @@ data Options = Options
                , _optPower  :: [String]
                , _optSend   :: Bool
                , _optPrintMap :: Bool
+               , _optDepth :: Maybe Int
+               , _optBranching :: Maybe Int
                }
 makeLenses ''Options
 
@@ -50,6 +53,8 @@ options = Options
           <*> many (strOption ( short 'p' ))
           <*> switch ( long "send" )
           <*> switch ( long "print-map" )
+          <*> optional (option auto (short 'd'))
+          <*> optional (option auto (short 'b'))
 
 printProblem :: Problem -> IO ()
 printProblem pb = do
@@ -79,8 +84,18 @@ main = do
               <> progDesc "ICFP 2015 !"
               <> header "Rafaël Bocquet & ???" )
   let time = fromIntegral $ fromMaybe 500 (options ^. optTime) :: Double
+  let powerPhrases = if null (options^.optPower)
+                     then [ "ei!"
+                          , "ia! ia!"
+                          , "r'lyeh"
+                          , "yuggoth"
+                          , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
+                          , "blue hades"
+                          , "tsathoggua"
+                          ]
+                     else (options^.optPower)
   sol <- do
-    forM (options ^. optInput) $ \inputfile -> do
+    parallelInterleaved $ (flip fmap) (options ^. optInput) $ \inputfile -> do
       input     <- BL.readFile inputfile
       case decode input :: Maybe Problem of
         Nothing -> do
@@ -93,16 +108,17 @@ main = do
                             (\i -> VU.generate (pb^.problemWidth)
                                    (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
           (scs, sol) <- fmap unzip
-                        $ forM (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
+                        $ parallelInterleaved
+                        $ (flip fmap) (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
                           let w = pb ^. problemWidth
                           let h = pb ^. problemHeight
                           let localTime = time / fromIntegral (length $ options^.optInput) / fromIntegral (length $ pb^.problemSourceSeeds)
                                           / fromIntegral (pb^.problemSourceLength)
-                                          / fromIntegral w / fromIntegral h
+                                          / fromIntegral w / fromIntegral h / fromIntegral (sum (length <$> powerPhrases))
                           putStrLn $ "TIME : " ++ show localTime
                           let (branching, depth) =
-                                find (\(a,b) -> fromIntegral (a^b) <= 18000.0 * localTime)
+                                find (\(a,b) -> fromIntegral (a^b) <= 3000000.0 * localTime)
                                 (sortBy (flip compare `on` uncurry (^))
                                  $ [ (3,3), (3,4), (3,5)
                                    , (4, 4), (4, 5), (4, 6), (4, 7), (4, 8)
@@ -114,7 +130,7 @@ main = do
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)
                                          units'
-                                         branching depth
+                                         (fromMaybe branching $ options^.optBranching) (fromMaybe depth $ options^.optDepth)
                                          ac (oacCacheCommands ac)
                           let tree = runReader (solveTree initialStep) solveEnv
                           s <- runReaderT (pickOne (options^.optPrintMap) (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
@@ -136,3 +152,4 @@ main = do
            (toJSON $ concat sol)
     putStrLn $ "Answer : " ++ show rsp
   pure ()
+  stopGlobalPool
