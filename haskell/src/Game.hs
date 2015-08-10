@@ -13,8 +13,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as VM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Diagrams.Prelude as D
-import qualified Graphics.Rendering.Chart.Easy as C
 
 data Problem = Problem
                { _problemId :: Integer
@@ -59,7 +57,7 @@ instance FromJSON Problem where
                          <*> v .: "height"
                          <*> (fmap pairOfCell <$> v .: "filled")
                          <*> v .: "sourceLength"
-                         <*> v .: "sourceSeeds"
+                         <*> (fmap head . group . sort <$> v .: "sourceSeeds")
   parseJSON _ = error "parseJSON: Problem"
 
 instance FromJSON Cell where

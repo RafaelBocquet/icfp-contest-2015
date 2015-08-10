@@ -13,8 +13,6 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Mutable as VM
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Diagrams.Prelude as D
-import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
 
 import Network.Wreq hiding (options, header, Options)
@@ -32,6 +30,7 @@ data Options = Options
                , _optTag    :: Maybe String
                , _optTime   :: Maybe Int
                , _optMemory :: Maybe Int
+               , _optCPUs :: Maybe Int
                , _optPower  :: [String]
                , _optSend   :: Bool
                , _optPrintMap :: Bool
@@ -47,14 +46,15 @@ options = Options
                       <> short 'f'
                       <> metavar "FILE"
                       <> help "Input file" ))
-          <*> optional (strOption ( long "tag" ))
-          <*> optional (option auto ( short 't' ))
-          <*> optional (option auto ( short 'm' ))
-          <*> many (strOption ( short 'p' ))
-          <*> switch ( long "send" )
+          <*> optional (strOption ( long "tag" <> help "Submission time" ))
+          <*> optional (option auto ( short 't' <> help "Time limit" ))
+          <*> optional (option auto ( short 'm' <> help "Available memory" ))
+          <*> optional (option auto ( short 'c' <> help "Number of available cores" ))
+          <*> many (strOption ( short 'p' <> help "Power phrase" ))
+          <*> switch ( long "send" <> help "Send the solution to the leaderboard")
           <*> switch ( long "print-map" )
-          <*> optional (option auto (short 'd'))
-          <*> optional (option auto (short 'b'))
+          <*> optional (option auto (short 'd' <> help "Solve tree search depth"))
+          <*> optional (option auto (short 'b' <> help "Solve tree branching factor"))
 
 printProblem :: Problem -> IO ()
 printProblem pb = do
@@ -92,14 +92,14 @@ main = do
                           , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
                           , "blue hades"
                           , "tsathoggua"
+                          , "case nightmare green"
                           ]
                      else (options^.optPower)
   sol <- do
     parallelInterleaved $ (flip fmap) (options ^. optInput) $ \inputfile -> do
       input     <- BL.readFile inputfile
       case decode input :: Maybe Problem of
-        Nothing -> do
-          fail "Bad input"
+        Nothing -> fail "Bad input"
         Just pb -> do
           let units' = pb ^. problemUnits
                        <&> computeUnitData (pb^.problemWidth) (pb^.problemHeight)
@@ -113,19 +113,20 @@ main = do
                         $ \(seedi, seed) -> do
                           let w = pb ^. problemWidth
                           let h = pb ^. problemHeight
-                          let localTime = time / fromIntegral (length $ options^.optInput) / fromIntegral (length $ pb^.problemSourceSeeds)
+                          let localTime = time / fromIntegral (length $ options^.optInput)
+                                          / fromIntegral (length $ pb^.problemSourceSeeds)
                                           / fromIntegral (pb^.problemSourceLength)
-                                          / fromIntegral w / fromIntegral h / fromIntegral (sum (length <$> powerPhrases))
+                                          / fromIntegral w / fromIntegral h
+                                          / fromIntegral (sum (length <$> powerPhrases))
                           putStrLn $ "TIME : " ++ show localTime
                           let (branching, depth) =
-                                find (\(a,b) -> fromIntegral (a^b) <= 3000000.0 * localTime)
+                                find (\(a,b) -> fromIntegral (a^b) <= 1500000.0 * localTime)
                                 (sortBy (flip compare `on` uncurry (^))
-                                 $ [ (3,3), (3,4), (3,5)
-                                   , (4, 4), (4, 5), (4, 6), (4, 7), (4, 8)
-                                   , (2,2), (2,3), (2,4)])
+                                 $ [ (3,3), (3,4), (3,5), (3, 6), (3, 7), (3, 8)
+                                   , (2,2), (2,3), (2,4), (2, 5)])
                                 & maybe (1, 1) id
-                          print (branching, depth)
-                          let initialStep = SolveStep seed (iterate ((+ 12345) . (* 1103515245)) 0) True initialMap 0 0 initialOState 0 0
+                          hPrint stderr (branching, depth)
+                          let initialStep = SolveStep seed (iterate ((+ 12345) . (* 1103515245)) 0) True initialMap 0 0 initialOState 0 0 0
                           let ac = makeAC (makeTrie powerPhrases)
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)
@@ -136,20 +137,21 @@ main = do
                           s <- runReaderT (pickOne (options^.optPrintMap) (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
                           let opt = bestOState (s^.stepOState)
                           let sc = s^.stepScore + stateScore opt
-                          print (opt&_oWhich)
-                          putStrLn $ show (s^.stepScore) ++ " + " ++ show (stateScore opt :: Int)
+                          hPrint stderr (opt&_oWhich)
+                          hPutStrLn stderr $ show (s^.stepScore) ++ " + " ++ show (stateScore opt :: Int)
                           -- liftIO $ print $ phraseToCommands (_oList opt & DL.toList)
                           -- liftIO $ simulate seed initialMap (pb^.problemWidth) (pb^.problemHeight) units'
                           --   (phraseToCommands (_oList opt & DL.toList))
                           pure $ (sc, Solution (pb ^. problemId) seed (fromMaybe "" (options ^. optTag)) (_oList opt & DL.toList))
-          putStrLn $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))
+          hPutStrLn stderr $ "problem " ++ show (pb^.problemId) ++ " : " ++ show (sum scs `div` (length (pb ^. problemSourceSeeds)))
           pure sol
-  when (options ^. optSend) $ do
+  if (options ^. optSend)
+    then do
     rsp <- postWith
            (defaults
             & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
            "https://davar.icfpcontest.org/teams/99/solutions"
            (toJSON $ concat sol)
     putStrLn $ "Answer : " ++ show rsp
-  pure ()
+    else print (toJSON (concat sol))
   stopGlobalPool

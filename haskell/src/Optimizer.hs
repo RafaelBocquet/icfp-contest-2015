@@ -14,8 +14,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Diagrams.Prelude as D
-import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
 
 import Game
@@ -175,8 +173,8 @@ outputString = (=<<) $ foldr1 OAlt . fmap OSingle
                       RotateCCW  -> "kstuwx"
                  )
 
-optimize :: Output Command -> OEntry Char
-optimize o = bestOState (oacNext (makeAC (makeTrie powerPhrases)) (outputString o) initialOState)
+-- optimize :: Output Command -> OEntry Char
+-- optimize o = bestOState (oacNext (makeAC (makeTrie powerPhrases)) (outputString o) initialOState)
 
 initialOState :: OState a
 initialOState = IntMap.singleton 0 (OEntry 0 IntSet.empty DL.empty)
@@ -186,6 +184,9 @@ bestOState x = x & IntMap.toList <&> snd & maximumBy (compare `on` _oScore)
 
 stateScore :: Integral b => OEntry a -> b
 stateScore opt = 2 * fromIntegral (_oScore opt) + 300 * fromIntegral (IntSet.size (_oWhich opt))
+
+stateScoreSimple :: Integral b => OEntry a -> b
+stateScoreSimple opt = 2 * fromIntegral (_oScore opt)
 
 phraseToCommands ∷ String → [Command]
 phraseToCommands = fmap (\x -> fst . fromJust $ find (elem x . snd)

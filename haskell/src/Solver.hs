@@ -2,8 +2,6 @@ module Solver where
 
 import Prelude ()
 import MyPrelude
-import Debug.Trace
-
 
 import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
@@ -14,10 +12,9 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Diagrams.Prelude as D
-import qualified Graphics.Rendering.Chart.Easy as C
 import qualified Data.DList as DL
 import System.IO.Unsafe
+import Debug.Trace
 import Unsafe.Coerce
 import System.Random
 
@@ -162,7 +159,6 @@ simulateNextUnit :: Monad m => Int -> Int -> Vector UnitData -> StateT SimStep m
 simulateNextUnit w h units = do
   n <- fmap ((.&. 0x7FFF) . flip shiftR 16 . fromIntegral)
        $ simRandom <<%= (.&. 0xFFFFFFFF) . (+ 12345) . (* 1103515245)
-  traceShowM n
   simPosition .= units V.! (n `mod` V.length units) ^. unitInitial
 
 simulateCommand :: Monad m => Int -> Int -> Vector UnitData -> Command -> StateT SimStep m Bool
@@ -192,12 +188,12 @@ simulate s v w h u cs = evalStateT
                     (let a (c:cs) = do
                            b <- simulateCommand w h u c
                            v <- use simFillMap
-                           liftIO $ print b
-                           liftIO $ print c
+                           liftIO $ hPrint stderr b
+                           liftIO $ hPrint stderr c
                            u <- use simPosition
-                           liftIO $ print (u^.gePosition)
+                           liftIO $ hPrint stderr (u^.gePosition)
                            liftIO $ printMap (\i j -> (v & u^.geUpdate) V.! j VU.! i) w h
-                           if b then a cs else liftIO $ print cs
+                           if b then a cs else liftIO $ hPrint stderr cs
                          a [] = pure ()
                      in do
                        simulateNextUnit w h u
@@ -261,19 +257,27 @@ data SolveStep = SolveStep
                  , _stepOState    :: OState Char
 
                  , _stepFillScore :: Ratio Integer
-                 , _stepAcc       :: Int
                    -- ^ Fill Score : it is better to fill nonempty lines
                    -- ^              it is better to fill lines with high height (as we spawn from low heights)
+                 , _stepAcc       :: Int
+                 , _stepAcc'      :: Int
                  }
 makeLenses ''SolveStep
+
+clamp0 x | x < 0 = 0
+         | otherwise = x
 
 getFillScore :: Int -> Int -> FillMap -> Ratio Integer
 getFillScore w h v = let w' = fromIntegral w :: Integer
                          h' = fromIntegral h :: Integer in
                      V.sum $ V.imap (\i v' -> let a = VU.foldl' (\x -> (+ x) . bool 0 1) 0 v'
-                                              in (60*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
-                                                 - 40 * (a * (fromIntegral $ let x = h - 1 - i
-                                                                             in x^(2 :: Integer))) % (h'*h')
+                                                  b  = VU.foldl' (\x -> ($ x) . bool id (const 1)) 0 v'
+                                              -- in (40*(a+1)*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
+                                              --    - 20 * (a * (fromIntegral $ let x = h - 1 - i
+                                              --                                in if x > h`div`2 then x^(2 :: Integer) else 0)) % (h'*h')
+                                              in (10 * (a*a) % (w'*w') -- Full line ~ 50pts = half the score from clearing a line
+                                                 - 160 * (b * (fromIntegral $ h - 1 - i)) % h'
+                                                 )
                                     ) v
 
 getAcc :: Int -> Int -> FillMap -> Int
@@ -287,26 +291,80 @@ getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
                                                           else \i -> a' VU.! i || (if i>0 then a' VU.! (i-1) else False)
                                          )
 
-rankStepElems :: Int -> Int -> SolveStep -> (Int, Integer, Int)
-rankStepElems w h s = (s^.stepScore, s^.stepFillScore & \a -> numerator a `div` denominator a, 2*(s^.stepAcc))
+getAcc' :: Int -> Int -> FillMap -> Int
+getAcc' w h v = V.sum $ V.imap
+                (\i v' ->
+                   VU.sum $ VU.imap
+                   (\j b ->
+                      if not b
+                      then let pos = if i`mod`2==0
+                                     then [(i, j+1), (i, j-1), (i-1,j-1), (i-1, j)]
+                                     else [(i, j+1), (i, j-1), (i-1,j), (i-1, j+1)]
+                           in case length $ filter (\(x,y) -> if (x>=0&&x<h&&y>=0&&y<w) then not (v V.! x VU.! y) else False) pos of
+                           0 -> 6
+                           1 -> 2
+                           x -> 0 -- if (i,j) == (0,0) then traceShow (pos, x) 0 else 0
+                      else 0
+                   ) v'
+                ) v
+
+rankStepElems :: Int -> Int -> SolveStep -> (Int, Int, Integer, Int, Int, Ratio Integer)
+rankStepElems w h s = (s^.stepScore
+                      , (stateScoreSimple (bestOState (s^.stepOState)))
+                      , s^.stepFillScore & \a -> numerator a `div` denominator a
+                      , (10*(s^.stepAcc))`div`w
+                      , s^.stepAcc'
+                      , rankStep2 w h s)
 
 rankStep :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep w h s =
-  fromIntegral (s ^. stepScore)
-  + (s ^. stepFillScore)
-  + 2 * fromIntegral (s ^. stepAcc) % 1
+  let w' = fromIntegral w in
+  -- fromIntegral (s ^. stepScore)
+  (s ^. stepFillScore)
+  -- + 10 * fromIntegral (s ^. stepAcc) % w'
+  - 10 * fromIntegral (s ^. stepAcc')
   - if s ^. stepRunning then 0 else 10000 -- Losing is bad (but this measure is also bad)
 
 rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep2 w h s =
-  fromIntegral (s ^. stepScore)
-  + (stateScore (bestOState (s^.stepOState))) % 1
-  + (s ^. stepFillScore)
-  + 2 * fromIntegral (s ^. stepAcc) % 1
+  let w' = fromIntegral w in
+  -- fromIntegral (s ^. stepScore)
+  -- + (stateScoreSimple (bestOState (s^.stepOState))) % 1
+  (s ^. stepFillScore)
+  -- + 10 * fromIntegral (s ^. stepAcc) % w'
+  - 10 * fromIntegral (s ^. stepAcc')
   - if s ^. stepRunning then 0 else 10000 -- Losing is bad (but this measure is also bad)
 
 rankStep3 :: Int -> Int -> SolveStep -> Ratio Integer
 rankStep3 w h s = fromIntegral (s ^. stepScore) + (stateScore (bestOState (s^.stepOState))) % 1
+
+
+-- getAcc :: Int -> Int -> FillMap -> Int
+-- getAcc w h v = go 0 (V.toList v) (VU.replicate w True)
+--   where go i []     a = 0
+--         go i (v:vs) a = let a' = VU.zipWith (&&) v a
+--                         in VU.foldl' (\x -> (+ x) . bool 0 1) 0 a'
+--                            + go (i+1) vs (VU.generate w $ if i`mod`2 == (0 :: Integer)
+--                                                           then \i -> a' VU.! i || (if i+1<w then a' VU.! (i+1) else False)
+--                                                           else \i -> a' VU.! i || (if i>0 then a' VU.! (i-1) else False)
+--                                          )
+
+-- rankStep :: Int -> Int -> SolveStep -> Ratio Integer
+-- rankStep w h s =
+--   fromIntegral (s ^. stepScore)
+--   + (s ^. stepFillScore)
+--   - 10 * (fromIntegral (s ^. stepAcc)) % fromIntegral w
+--   + (stateScore (bestOState (s^.stepOState))) % 2
+--   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
+
+-- rankStep2 :: Int -> Int -> SolveStep -> Ratio Integer
+-- rankStep2 w h s =
+--   fromIntegral (s ^. stepScore)
+--   + (s ^. stepFillScore)
+--   - 10 * (fromIntegral (s ^. stepAcc)) % fromIntegral w
+--   + (stateScore (bestOState (s^.stepOState))) % 1
+--   - if s ^. stepRunning then 0 else 1000 -- Losing is bad (but this measure is also bad)
+
 
 data SolveEnv = SolveEnv
                 { _sWidth :: Int
@@ -347,6 +405,7 @@ singleStep s
                                          cs
                                          (getFillScore w h v')
                                          (getAcc w h v')
+                                         (getAcc' w h v')
         pure $ ss
           & sortBy (flip compare `on` rankStep w h)
           & zip rs
@@ -365,7 +424,7 @@ pickOne pm s i (Node a _) | i == 0 || not (a ^. stepRunning) = do
   h <- view sHeight
   when pm $ do
     liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-    liftIO $ print (a ^. stepScore + stateScore (bestOState (a ^. stepOState)))
+    liftIO $ hPrint stderr (a ^. stepScore + stateScore (bestOState (a ^. stepOState)))
   pure a
 pickOne pm s i (Node a as) = do
   w <- view sWidth
@@ -376,10 +435,14 @@ pickOne pm s i (Node a as) = do
     putStr $ s ++ show i ++ " " ++ show (a ^. stepScore) ++ "    "
     hFlush stdout
     else do
-    liftIO $ print (a & rankStepElems w h)
+    liftIO $ hPrint stderr (a & rankStepElems w h)
     liftIO $ printMap (\i j -> (a^.stepFillMap) V.! j VU.! i) w h
-    liftIO $ putStrLn (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
-    liftIO $ putStrLn ""
+    liftIO $ hPutStrLn stderr (s ++ " " ++ show i ++ " " ++ show (a ^. stepScore + stateScore (bestOState (a ^. stepOState))))
+    -- liftIO $ hPutStrLn stderr "==="
+    -- forM_ (head . head . levels <$> as) $ \b -> do
+    --   liftIO $ hPrint stderr (b & rankStepElems w h)
+    --   liftIO $ printMap (\i j -> (b^.stepFillMap) V.! j VU.! i) w h
+    --   liftIO $ hPutStrLn stderr ""
   depth <- view sDepth
   if i <= depth
     then pickOne pm s (i-1) $ as & maximumBy (compare `on` (maximum . fmap (rankStep3 w h) . (!! (min i depth - 1)) . levels))

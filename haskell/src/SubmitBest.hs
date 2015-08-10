@@ -67,9 +67,9 @@ main = do
       forM_ b $ \pbs -> do
         putStrLn $ show (head pbs&_solutionProblemId) ++ "\t" ++ show (sum (pbs<&>_solutionScore)`div`length pbs)
       print (length (show (toJSON b)))
-      -- rsp <- postWith
-      --        (defaults
-      --         & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
-      --        "https://davar.icfpcontest.org/teams/99/solutions"
-      --        (toJSON b)
-      -- print rsp
+      rsp <- postWith
+             (defaults
+              & auth .~ Just (basicAuth "" "dy5FWzIJnfSTL+RQ9J/7Xxk9s09GWCmybj6u+zbu8SE="))
+             "https://davar.icfpcontest.org/teams/99/solutions"
+             (toJSON (concat b))
+      print rsp

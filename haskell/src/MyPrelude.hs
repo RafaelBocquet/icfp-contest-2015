@@ -40,7 +40,6 @@ module MyPrelude
        , module Control.Category
        , module Data.Bits
        , module Data.Tree
-       , module Data.Graph.Inductive
        , module System.IO
        , module Data.Hashable
        , module Data.Ratio
@@ -81,7 +80,6 @@ import Control.Monad.ST
 import Control.Monad.Loops
 import GHC.Generics (Generic)
 import Control.Category
-import Data.Graph.Inductive hiding (Context, Context', (&), pre, empty, ap)
 import Data.Bits
 import Data.Tree
 import Data.Function (on)
