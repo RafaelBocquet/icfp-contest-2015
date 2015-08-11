@@ -35,6 +35,7 @@ data Options = Options
                , _optPower  :: [String]
                , _optSend   :: Bool
                , _optPrintMap :: Bool
+               , _optInteractive :: Bool
                , _optDepth :: Maybe Int
                , _optBranching :: Maybe Int
                }
@@ -54,6 +55,7 @@ options = Options
           <*> many (strOption ( short 'p' <> help "Power phrase" ))
           <*> switch ( long "send" <> help "Send the solution to the leaderboard")
           <*> switch ( long "print-map" )
+          <*> switch ( long "interactive" )
           <*> optional (option auto (short 'd' <> help "Solve tree search depth"))
           <*> optional (option auto (short 'b' <> help "Solve tree branching factor"))
 
@@ -90,14 +92,24 @@ main = do
                           , "ia! ia!"
                           , "r'lyeh"
                           , "yuggoth"
-                          , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
-                          , "blue hades"
                           , "tsathoggua"
+                          , "yogsothoth"
+                          , "necronomicon"
+                          , "vigintillion"
+                          , "cthulhu fhtagn!"
+                          , "ph'nglui mglw'nafh cthulhu r'lyeh wgah'nagl fhtagn."
+                          , "in his house at r'lyeh dead cthulhu waits dreaming."
+                          , "the laundry"
+                          , "planet 10"
+                          , "yoyodyne"
+                          , "monkeyboy"
+                          , "john bigboote"
+                          , "blue hades"
                           , "case nightmare green"
                           ]
                      else (fmap (fmap toLower) $ options^.optPower)
   sol <- do
-    parallelInterleaved $ (flip fmap) (options ^. optInput) $ \inputfile -> do
+    sequence $ (flip fmap) (options ^. optInput) $ \inputfile -> do
       input     <- BL.readFile inputfile
       case decode input :: Maybe Problem of
         Nothing -> fail "Bad input"
@@ -106,10 +118,10 @@ main = do
                        <&> computeUnitData (pb^.problemWidth) (pb^.problemHeight)
                        & V.fromList
               initialMap = (V.generate (pb^.problemHeight)
-                            (\i -> VU.generate (pb^.problemWidth)
-                                   (\j -> Set.member (j, i) (pb^.problemFilled.to Set.fromList))))
+                            (\i -> foldl' (\a j -> if Set.member (j, i) (pb^.problemFilled.to Set.fromList) then setBit a j else a)
+                                   0 [0..pb^.problemWidth-1]))
           (scs, sol) <- fmap unzip
-                        $ parallelInterleaved
+                        $ sequence
                         $ (flip fmap) (zip (iterate (subtract 1) $ length (pb ^. problemSourceSeeds) - 1) $ pb ^. problemSourceSeeds)
                         $ \(seedi, seed) -> do
                           let w = pb ^. problemWidth
@@ -127,7 +139,7 @@ main = do
                                    , (2,2), (2,3), (2,4), (2, 5)])
                                 & maybe (1, 1) id
                           hPrint stderr (branching, depth)
-                          let initialStep = SolveStep seed (iterate ((+ 12345) . (* 1103515245)) 0) True initialMap 0 0 initialOState 0 0 0
+                          let initialStep = SolveStep seed True initialMap 0 0 0 initialOState
                           let ac = makeAC (makeTrie powerPhrases)
                           let solveEnv = SolveEnv
                                          (pb^.problemWidth) (pb^.problemHeight)
@@ -135,11 +147,18 @@ main = do
                                          (fromMaybe branching $ options^.optBranching) (fromMaybe depth $ options^.optDepth)
                                          ac (oacCacheCommands ac)
                           let tree = runReader (solveTree initialStep) solveEnv
-                          s <- runReaderT (pickOne (options^.optPrintMap) (show seedi ++ " ") (pb^.problemSourceLength) tree) solveEnv
+                          s <- runReaderT (pickOne
+                                           (options^.optPrintMap)
+                                           (options^.optInteractive)
+                                           (show seedi ++ " ")
+                                           (pb^.problemSourceLength)
+                                           tree) solveEnv
                           let opt = bestOState (s^.stepOState)
                           let sc = s^.stepScore + stateScore opt
                           hPrint stderr (opt&_oWhich)
                           hPutStrLn stderr $ show (s^.stepScore) ++ " + " ++ show (stateScore opt :: Int)
+                          hPutStrLn stderr $ show (fromIntegral (stateScoreSimple opt) / 2
+                                                   / fromIntegral (length (_oList opt & DL.toList)) :: Double)
                           -- liftIO $ print $ phraseToCommands (_oList opt & DL.toList)
                           -- liftIO $ simulate seed initialMap (pb^.problemWidth) (pb^.problemHeight) units'
                           --   (phraseToCommands (_oList opt & DL.toList))
@@ -154,5 +173,5 @@ main = do
            "https://davar.icfpcontest.org/teams/99/solutions"
            (toJSON $ concat sol)
     putStrLn $ "Answer : " ++ show rsp
-    else print (toJSON (concat sol))
+    else BL.putStrLn (encode (toJSON (concat sol)))
   stopGlobalPool

@@ -1,6 +1,4 @@
-Usage : 
-mkdir VIS
-./haskell/dist/build/ICFP/ICFP -v VIS -i data/problem_xxx.json
+ICFP Contest 2015 - Team <$><*>
+===
 
-firefox ./VIS/???/index.html
-
+There will be a writeup here soon

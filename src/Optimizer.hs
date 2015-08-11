@@ -25,7 +25,6 @@ data Output a = OEmpty
               deriving (Show, Eq, Ord, Functor, Foldable, Traversable, Generic)
 instance Hashable a => Hashable (Output a)
 
-
 outputSize :: Output a -> Integer
 outputSize = getSum . foldMap (const (Sum 1))
 

@@ -1,8 +1,3 @@
-SOLS*
-rankings.js
-haskell/dist/
-haskell/VIS/
-*/TAGS
-VIS
+dist/
+TAGS
 *.prof*
-haskell/ICFP

@@ -87,22 +87,20 @@ makeLenses ''Unit
 printMap :: (Int -> Int -> Bool) -> Int -> Int -> IO ()
 printMap v w h = do
   forM_ [0..h-1] $ \i -> do
-    when (i `mod` 2 /= 0) (hPutChar stderr ' ')
+    when (i `mod` 2 /= 0) (hPutChar stdout ' ')
     forM_ [0..w-1] $ \j -> do
       if v j i
         then do
-        setSGR [SetColor Foreground Vivid Red]
-        hPutChar stderr 'O'
-        else hPutChar stderr 'X'
-      setSGR [Reset]
-      hPutChar stderr ' '
-    hPutChar stderr '\n'
+        hPutChar stdout '⬢'
+        else hPutChar stdout '⬡'
+      hPutChar stdout ' '
+    hPutChar stdout '\n'
 
 printUnit :: Unit -> IO ()
 printUnit u = do
   let as = (u^.unitPivot):(u^.unitMembers)
   forM_ [minimum (snd <$> as) .. maximum (snd <$> as)] $ \i -> do
-    when (i `mod` 2 /= 0) (hPutChar stderr ' ')
+    when (i `mod` 2 /= 0) (hPutChar stdout ' ')
     forM_ [minimum (fst <$> as) .. maximum (fst <$> as)] $ \j -> do
       when ((j, i) == u^.unitPivot) $ setSGR [SetColor Foreground Vivid Red]
       case ((j, i) == u^.unitPivot, (j, i) `elem` u^.unitMembers) of
@@ -110,5 +108,5 @@ printUnit u = do
         (True, False)  -> putStr "O"
         (_,    True)   -> putStr "X"
       setSGR [Reset]
-      hPutChar stderr ' '
-    hPutChar stderr '\n'
+      hPutChar stdout ' '
+    hPutChar stdout '\n'
